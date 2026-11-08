@@ -2,6 +2,8 @@
 
 **Optimized Trajectory Simulator.** The project folder is `OTiS`; the Python package is `otis`.
 
+Live Link: https://otis-site-mu.vercel.app/
+
 You give it a vehicle's starting position, its velocity, and a target. A neural network reads that and outputs a complete plan: 50 thrust commands telling the vehicle how to fire its engines at each moment. The plan is flown through a physics simulator (F = m·a, integrated with RK4), and because the simulator is differentiable, the exact effect of every thrust command on the miss and on the fuel flows back into the network's weights. There is no dataset and no reinforcement learning. After training, any new mission is planned in a single forward pass.
 
 **You define the vehicle.** Enter mass, thrust, drag, gravity, mission time, workspace size and fuel weight (or start from the Rocket, UAV or USV preset). The classical planners re-solve instantly on the plant your numbers define, and one click trains a network on that plant. What OTiS takes as input is physics plus an objective, not a dataset: the simulator generates and grades its own practice missions.
