@@ -485,7 +485,7 @@ def run_checks(args) -> None:
         axis=1,
     )
     x0 = jnp.zeros((4,), dtype=jnp.float32)
-    final, trajectory = simulate(controls, x0, dt)
+    final, trajectory = simulate(controls, x0, float(dt))
     final.block_until_ready()
     horizon = dt * config.N_STEPS
     expected_v = controls[0] * horizon

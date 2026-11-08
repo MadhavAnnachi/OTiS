@@ -1,19 +1,22 @@
 """Differentiable 2D spacecraft dynamics.
 
 The state is ``[x, y, vx, vy]`` and the control is a thrust ``[ux, uy]``.
-Mass is 1, so thrust is acceleration. Integration is a fixed-step RK4, and
+Mass is 1, so thrust is acceleration. Integration uses an exact linear transition, and
 ``simulate`` rolls a whole thrust sequence out with ``jax.lax.scan`` so the
 trajectory stays inside the JAX graph. Gradients of a terminal cost flow
 straight back into every control.
 """
 
+import math
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 
 try:
-    from .config import DT, MAX_THRUST, N_STEPS
+    from .config import DT, MAX_DECAY_PER_SUBSTEP, MAX_SUBSTEPS, MAX_THRUST, N_STEPS
 except ImportError:  # ``python main.py`` from this directory
-    from config import DT, MAX_THRUST, N_STEPS
+    from config import DT, MAX_DECAY_PER_SUBSTEP, MAX_SUBSTEPS, MAX_THRUST, N_STEPS
 
 # ``(accel_gain, gravity, drag)``: accel_gain = max thrust / mass [m/s^2 per
 # unit throttle], gravity [m/s^2, acting in -y], drag = linear drag
@@ -21,45 +24,44 @@ except ImportError:  # ``python main.py`` from this directory
 DEFAULT_PLANT = (1.0, 0.0, 0.0)
 
 
+def point_mass_coefficients(drag, dt):
+    """Exact ZOH coefficients: exp(-k h), integral exp, double integral exp."""
+    z = drag * dt
+    decay = math.exp(-z)
+    if abs(z) < 1e-3:
+        tau = dt * (1 - z / 2 + z*z / 6 - z**3 / 24 + z**4 / 120)
+        q = dt*dt * (0.5 - z / 6 + z*z / 24 - z**3 / 120 + z**4 / 720)
+    else:
+        tau = -math.expm1(-z) / drag
+        q = (dt - tau) / drag
+    return decay, tau, q
+
+
 def rk4_step(state, control, dt, plant=DEFAULT_PLANT):
-    """Advance one RK4 step of the (generalized) double integrator.
+    """Exact ZOH step of v' = gain*u - drag*v - [0, gravity].
 
-    Continuous equations (mass ``m = 1``):
+    The legacy name is kept for callers; coefficients are static during JIT.
+    """
+    gain, gravity, drag = plant
+    e, tau, q = point_mass_coefficients(drag, dt)
+    acc = gain * control - jnp.array([0.0, gravity])
+    return jnp.concatenate((state[:2] + tau * state[2:] + q * acc,
+                            e * state[2:] + tau * acc))
 
-    - ``x_dot = vx``
-    - ``y_dot = vy``
-    - ``vx_dot = ux / m``
-    - ``vy_dot = uy / m``
 
-    RK4 is exact for this piecewise-constant-acceleration system, which keeps
-    the backpropagated gradient faithful over the whole horizon. A forward
-    Euler step would add a systematic drift that the loss would then fit.
+def substeps_for(drag: float, dt: float) -> int:
+    """Legacy RK4 stiffness-domain guard (0 means unsupported parameters).
 
-    ``plant`` generalizes this to user parameters:
-    ``v_dot = gain * u - drag * v - [0, gravity]``. With the default
-    ``(1, 0, 0)`` the arithmetic is identical to the unit plant above.
-    With drag the system is no longer polynomial, so RK4 is 4th-order
-    accurate rather than exact.
+    Exact linear propagation no longer needs sub-steps; retain the admission
+    limit so extreme parameter combinations are still explicitly rejected.
     """
 
-    gain, gravity, drag = plant
-
-    def deriv(s):
-        return jnp.array([
-            s[2],
-            s[3],
-            gain * control[0] - drag * s[2],
-            gain * control[1] - gravity - drag * s[3],
-        ])
-
-    k1 = deriv(state)
-    k2 = deriv(state + dt / 2 * k1)
-    k3 = deriv(state + dt / 2 * k2)
-    k4 = deriv(state + dt * k3)
-    return state + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+    z = max(float(drag), 0.0) * float(dt)
+    n = max(1, math.ceil(z / MAX_DECAY_PER_SUBSTEP - 1e-12))
+    return n if n <= MAX_SUBSTEPS else 0
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=("dt", "plant"))
 def simulate(controls, x0, dt=DT, plant=DEFAULT_PLANT):
     """Integrate ``controls`` from ``x0``.
 
@@ -70,9 +72,15 @@ def simulate(controls, x0, dt=DT, plant=DEFAULT_PLANT):
     trainer always passes the compile-time constant 50.
 
     ``jax.lax.scan`` is the whole rollout. There is no Python loop, so a
-    later ``jax.grad`` can see every RK4 stage.
+    later ``jax.grad`` can see every exact state transition.
     """
 
+    dt = float(dt)
+    plant = tuple(float(v) for v in plant)
+    n_sub = substeps_for(plant[2], dt)
+    if n_sub == 0:
+        raise ValueError(f"drag x time step = {plant[2] * dt:.3g} is too stiff to integrate; "
+                         f"lower drag or mission time")
     def step(state, control):
         new_state = rk4_step(state, control, dt, plant)
         return new_state, new_state

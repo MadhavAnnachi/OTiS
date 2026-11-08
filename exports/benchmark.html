@@ -85,7 +85,7 @@ small, .foot { color: var(--text-3); font-size: 14px; }
     <div class="tile"><div class="t-lab">Mean per-mission gap</div><div class="t-val c-gold">0.0184%</div><div class="t-sub">95% CI 0.0145–0.0238% vs exact optimum</div></div>
     <div class="tile"><div class="t-lab">Batched throughput vs convex · batch 1,000</div><div class="t-val c-green">117×</div><div class="t-sub">single plan: 1.13 ms vs 0.96 ms solver</div></div>
     <div class="tile"><div class="t-lab">p99 optimality gap</div><div class="t-val c-purple">0.323%</div><div class="t-sub">99% of 5,000 test missions are within this of the exact optimum</div></div>
-    <div class="tile"><div class="t-lab">Control effort vs Apollo E-guidance</div><div class="t-val c-coral">−1.20%</div><div class="t-sub">for 0.0149 m terminal miss · Apollo enforces exact rendezvous and uses 0.35% less Δv</div></div>
+    <div class="tile"><div class="t-lab">Control effort vs Apollo E-guidance</div><div class="t-val c-coral">−1.20%</div><div class="t-sub">for 0.0149 m terminal miss · Apollo steers for zero position miss and uses 0.35% less Δv</div></div>
   </div>
 
   <!-- ===== Problem definition ===== -->
@@ -96,7 +96,7 @@ small, .foot { color: var(--text-3); font-size: 14px; }
       <div><dt>Time step</dt><dd>dt = 0.08 s</dd></div>
       <div><dt>Horizon</dt><dd>N = 50 steps (T = 4.00 s)</dd></div>
       <div><dt>Objective</dt><dd>J = ‖p<sub>N</sub> − goal‖² + λ·Σ<sub>k</sub>‖u<sub>k</sub>‖², λ = 0.01; |u<sub>x</sub>|, |u<sub>y</sub>| ≤ 1.0 per step</dd></div>
-      <div><dt>Terminal condition</dt><dd>Soft penalty: the terminal position error is part of J and terminal velocity is free, so OTiS, convex and the KKT optimum trade a small miss for less control effort. E-guidance instead enforces the terminal position exactly (zero-miss rendezvous by construction).</dd></div>
+      <div><dt>Terminal condition</dt><dd>Soft penalty on the terminal position; terminal velocity is free (interception, not rendezvous or landing). OTiS, convex and the KKT optimum trade a small miss for less control effort. E-guidance steers for zero terminal position error when the goal is reachable within the thrust limit, and misses when it is not.</dd></div>
       <div><dt>Test missions</dt><dd>5,000 (5 disjoint folds × 1,000), never seen in training</dd></div>
       <div><dt>Sampling</dt><dd>Start and goal positions uniform in [−2.0, 2.0]² m; initial velocity uniform in [−0.5, 0.5]² m/s; drawn from random-number streams separate from training's</dd></div>
     </dl>
@@ -160,7 +160,7 @@ small, .foot { color: var(--text-3); font-size: 14px; }
     </section>
   </div>
 
-  <p class="foot">large model · 12,723,300 parameters · 5 × 1,000 unseen missions · benchmark run 2026-11-07 21:34:28 on cuda:0 · exported 2026-11-07 22:15</p>
+  <p class="foot">large model · 12,723,300 parameters · 5 × 1,000 unseen missions · benchmark run 2026-11-07 21:34:28 on cuda:0 · exported 2026-11-07 23:26</p>
 </main>
 </body>
 </html>

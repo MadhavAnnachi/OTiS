@@ -14,6 +14,11 @@ problems per step. ``--size small`` restores the original ~0.6 M MLP.
 """
 
 N_STEPS = 50
+# Legacy RK4 stiffness admission rule, retained as the supported parameter domain.
+# Point-mass propagation now uses an exact linear transition (no sub-steps),
+# but combinations above MAX_DECAY_PER_SUBSTEP * MAX_SUBSTEPS are still rejected.
+MAX_DECAY_PER_SUBSTEP = 0.5
+MAX_SUBSTEPS = 64
 DT = 0.08
 MASS = 1.0
 MAX_THRUST = 1.0

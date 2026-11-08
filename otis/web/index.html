@@ -205,7 +205,7 @@
         <ol class="steps">
           <li><span class="n">1</span><div><b>Describe the vehicle</b><p>Mass, thrust, drag, gravity, mission time and workspace, or a preset. This defines the physics; it is the only input OTiS needs.</p></div></li>
           <li><span class="n">2</span><div><b>Invent missions</b><p>Each step draws 1,024 random starts, velocities and goals inside the workspace. The simulator is the data source.</p></div></li>
-          <li><span class="n">3</span><div><b>Plan and fly</b><p>The network outputs a thrust plan for each mission, and the plans are flown through a differentiable RK4 simulator.</p></div></li>
+          <li><span class="n">3</span><div><b>Plan and fly</b><p>The network outputs a thrust plan for each mission, and the plans are flown through a differentiable exact linear-plant simulator.</p></div></li>
           <li><span class="n">4</span><div><b>Score</b><p>Every flight gets one number: J = miss² + λ·control effort. Small λ favors accuracy; large λ saves fuel.</p></div></li>
           <li><span class="n">5</span><div><b>Learn exactly</b><p>Because the simulator is differentiable, the exact gradient of J flows back through every integration step into the network's weights.</p></div></li>
         </ol>
@@ -226,7 +226,7 @@
           <div class="card about-card">
             <div class="group-title">What it is compared with</div>
             <p><b>Convex optimization</b> (CVXPY + Clarabel): the way flight systems such as G-FOLD solve this class of problem, re-solved for every mission.</p>
-            <p><b>Apollo E-guidance</b>: the classic closed-form steering law, which steers for an exact rendezvous and spends more control effort to get it.</p>
+            <p><b>Apollo E-guidance</b>: the classic closed-form steering law. It aims to drive final position error to zero, spending more control effort to do so. Saturation and drag compensation can cause misses even on reachable missions; this bounded law is not a reachability guarantee. It does not try to match a final velocity.</p>
             <p><b>Exact optimum</b>: because this plant is linear, the true best plan can be computed, so the network's distance from optimal is measured, not estimated.</p>
           </div>
           <div class="card about-card">
@@ -236,7 +236,7 @@
           </div>
           <div class="card about-card">
             <div class="group-title">Honest limits</div>
-            <p>Training covers linear thrust plants today. Missing the target is penalized rather than forbidden, so the network trades a small miss for less effort, while E-guidance hits exactly. A network carries no hard guarantee; a solver does. The network's case is a fixed, tiny cost per plan that stays fixed as problems grow harder.</p>
+            <p>Training covers linear thrust plants today. The objective scores only the final position and the control effort; the arrival velocity is free, so a mission is an interception (fly-through), not a landing or docking. Missing is penalized rather than forbidden, so the optimizer and the network trade a small miss for less effort; E-guidance aims for zero miss but can miss both unreachable goals and some reachable goals under saturation.</p><p>The convex solver returns the provable optimum of this objective. The network returns an approximation without that guarantee, so the Simulator shows how far each network plan is from the optimum, and warns when a network is under-trained. Its case is a fixed, tiny cost per plan that stays fixed as problems grow harder.</p>
           </div>
           <div class="card about-card">
             <div class="group-title">Built with</div>

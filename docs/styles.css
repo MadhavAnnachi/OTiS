@@ -10,7 +10,7 @@
   --fill-2: rgba(255, 255, 255, 0.11);
   --label: #ececec;
   --label-2: #b4b4b4;
-  --label-3: #8c8c8c;
+  --label-3: #a3a3a3;          /* 5.0:1 on #333333 (WCAG AA) */
   --line: #5e5e5e;             /* the thin box outline */
   --line-strong: #7a7a7a;
   --sep: #474747;              /* rows inside a box */
@@ -488,3 +488,21 @@ kbd, code { background: transparent; border: 1px solid var(--line); }
 .about .eq { font-family: var(--serif); font-size: 22px; text-align: center; padding: 12px 0; border-top: 1px solid var(--sep); border-bottom: 1px solid var(--sep); }
 @media (max-width: 1100px) { .steps { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 768px) { .steps, .about-grid { grid-template-columns: 1fr; } .about-lead { padding: 20px; } .about-lead p { font-size: 18px; } }
+
+/* ---------- planner error note ---------- */
+.note.err { border-color: rgba(230, 91, 85, 0.75); color: var(--label); }
+.note.err b { color: var(--red); }
+
+/* ---------- phones: no horizontal page scroll ---------- */
+html, body { overflow-x: clip; }
+@media (max-width: 640px) {
+  .nav-inner { display: flex; flex-wrap: wrap; justify-content: space-between; height: auto; padding: 8px 16px; row-gap: 8px; }
+  .brand-text small { display: none; }
+  #tabs { order: 3; width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
+  #tabs button { padding: 6px 4px; }
+  main { padding: 0 16px 48px; }
+  .log-tools { flex-wrap: wrap; row-gap: 8px; }
+  .log-head h2 .muted { display: block; margin: 4px 0 0; }
+  .hero h1 { font-size: 34px; }
+  .transport { left: 8px; right: 8px; }
+}

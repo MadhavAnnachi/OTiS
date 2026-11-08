@@ -5,6 +5,13 @@
 (() => {
   "use strict";
   const N = 50;
+  // Legacy stiffness-domain guard, same admission rule as otis/config.py.
+  // Exact point-mass propagation below no longer needs RK4 sub-steps.
+  const MAX_DECAY = 0.5, MAX_SUB = 64;
+  const substepsFor = (drag, dt) => {
+    const n = Math.max(1, Math.ceil(Math.max(drag, 0) * dt / MAX_DECAY - 1e-12));
+    return n <= MAX_SUB ? n : 0;
+  };
   let CATALOG = null;
 
   const clip = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -45,8 +52,11 @@
       spec.speed_limit = +params.speed_limit;
       spec.drag = +params.drag;
     }
+    spec.substeps = kind === "point_mass" ? substepsFor(spec.drag, spec.dt) : 1;
+    spec.error = spec.substeps ? null : `Drag/mass × time step = ${+(spec.drag * spec.dt).toPrecision(3)} is too stiff to simulate reliably (the limit is ${MAX_DECAY * MAX_SUB}). Lower the drag or the mission time, or raise the mass.`;
     spec.signature = kind === "point_mass" ? "pm:" + [spec.gain, spec.gravity, spec.drag, spec.horizon, spec.lambda_fuel].map((v) => +v.toPrecision(6)).join(",") : null;
     spec.derived = derived(spec);
+    if (spec.error) spec.derived.warnings.push(spec.error);
     return spec;
   }
 
@@ -76,10 +86,18 @@
   }
 
   // ------------------------------------------------------------ point mass
+  // Exact zero-order-hold transition; Taylor form avoids tiny-drag cancellation.
+  function pmCoefficients(drag, dt) {
+    const z = drag * dt, e = Math.exp(-z);
+    const tau = Math.abs(z) < 1e-3 ? dt * (1 - z/2 + z*z/6 - z**3/24 + z**4/120) : -Math.expm1(-z) / drag;
+    const q = Math.abs(z) < 1e-3 ? dt*dt * (0.5 - z/6 + z*z/24 - z**3/120 + z**4/720) : (dt - tau) / drag;
+    return [e, tau, q];
+  }
   function stepPm(s, u, spec) {
-    const uu = [clip(u[0], -1, 1), clip(u[1], -1, 1)];
-    const { gain, gravity, drag } = spec;
-    return rk4(s, (x) => [x[2], x[3], gain * uu[0] - drag * x[2], gain * uu[1] - gravity - drag * x[3]], spec.dt);
+    if (!(spec.substeps || substepsFor(spec.drag, spec.dt))) throw new Error(spec.error || "plant too stiff to integrate");
+    const [e, tau, q] = pmCoefficients(spec.drag, spec.dt);
+    const ax = spec.gain * clip(u[0], -1, 1), ay = spec.gain * clip(u[1], -1, 1) - spec.gravity;
+    return [s[0] + tau*s[2] + q*ax, s[1] + tau*s[3] + q*ay, e*s[2] + tau*ax, e*s[3] + tau*ay];
   }
   function simulatePm(controls, x0, spec) {
     let s = x0.slice(0, 4).map(Number);
@@ -91,14 +109,12 @@
   function influence(spec) {
     const key = [spec.gain, spec.drag, spec.dt].map((v) => v.toPrecision(12)).join("|");
     if (bCache[key]) return bCache[key];
-    const unit = { ...spec, gravity: 0 };
-    const b = [];
-    for (let k = 0; k < N; k++) {
-      const u = Array.from({ length: N }, () => [0, 0]);
-      u[k][0] = 1;
-      b.push(simulatePm(u, [0, 0, 0, 0], unit)[N][0]);
-    }
-    return (bCache[key] = b);
+    // Time-invariant plant: impulse at step k = one forced step + (N-1-k) free steps.
+    const [e, tau, q] = pmCoefficients(spec.drag, spec.dt);
+    let p = spec.gain * q, v = spec.gain * tau;
+    const xs = [p];
+    for (let j = 1; j < N; j++) { p += tau * v; v *= e; xs.push(p); }
+    return (bCache[key] = xs.reverse());
   }
   function residual(x0, goal, spec) {
     const free = simulatePm(Array.from({ length: N }, () => [0, 0]), x0, spec)[N];
@@ -197,6 +213,11 @@
     goal = [clip(+goal[0], -L, L), clip(+goal[1], -L, L)];
     const plans = {};
     let optimal = null;
+    if (spec.error) {
+      return { x0, goal, plans, optimal_loss: null, error: spec.error,
+        spec: { params: spec.params, horizon: spec.horizon, dt: spec.dt, workspace: spec.workspace, start_speed: spec.start_speed, lambda_fuel: spec.lambda_fuel, signature: spec.signature, derived: spec.derived, clamped: spec.clamped },
+        neural_status: { available: false, trainable: false, reason: spec.error } };
+    }
     if (spec.kind === "point_mass") {
       optimal = score(qpSolve(x0, goal, spec), x0, goal, spec).loss;
       const [u, ms] = timed(() => qpSolve(x0, goal, spec));

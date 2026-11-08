@@ -175,6 +175,8 @@ class Session:
         if self.thread is not None and self.thread.is_alive():
             return False, "Training already running"
         spec = resolve(opts.get("vehicle", "rocket"), opts.get("params"))
+        if spec.get("error"):
+            return False, spec["error"]
         if spec["kind"] != "point_mass":
             return False, f"Network training needs a thrust-driven plant (Rocket, UAV, USV), not the {spec['name']}."
         self.stop_event = threading.Event()
@@ -302,6 +304,8 @@ class Session:
 
     def plan(self, x0, goal, methods=None, vehicle="rocket", params=None):
         spec = resolve(vehicle, params)
+        if spec.get("error"):
+            raise BadRequest(spec["error"], 422)
         lim = spec["workspace"]
         x0 = np.asarray(x0, np.float64)
         goal = np.clip(np.asarray(goal, np.float64), -lim, lim)
@@ -317,6 +321,70 @@ class Session:
                                              "lambda_fuel", "signature", "derived", "clamped")}
         out["neural_status"] = neural_status
         return out
+
+
+class BadRequest(ValueError):
+    """A client error: answered with HTTP 400 (or ``code``) and a readable message."""
+
+    def __init__(self, message, code=400):
+        super().__init__(message)
+        self.code = code
+
+
+KNOWN_METHODS = {"neural", "convex", "e_guidance", "pursuit"}
+MAX_ABS_INPUT = 1e6  # positions in m, velocities in m/s
+
+
+def _finite_vector(value, n, name):
+    if not isinstance(value, (list, tuple)) or len(value) != n:
+        raise BadRequest(f"'{name}' must be a list of {n} numbers")
+    try:
+        out = np.asarray([float(v) for v in value], np.float64)
+    except (TypeError, ValueError):
+        raise BadRequest(f"'{name}' must contain only numbers") from None
+    if not np.all(np.isfinite(out)):
+        raise BadRequest(f"'{name}' must be finite")
+    if np.max(np.abs(out)) > MAX_ABS_INPUT:
+        raise BadRequest(f"'{name}' values must be within ±{MAX_ABS_INPUT:g}")
+    return out
+
+
+def validate_plan_request(body):
+    """Return (x0, goal, methods, vehicle, params) or raise BadRequest."""
+
+    if not isinstance(body, dict):
+        raise BadRequest("request body must be a JSON object")
+    vehicle = body.get("vehicle", "rocket")
+    if not isinstance(vehicle, str) or vehicle not in VEHICLES:
+        raise BadRequest(f"unknown vehicle '{vehicle}'; expected one of {sorted(VEHICLES)}")
+    x0 = _finite_vector(body.get("x0"), 4, "x0")
+    goal = _finite_vector(body.get("goal"), 2, "goal")
+    methods = body.get("methods")
+    if methods is not None:
+        if not isinstance(methods, list) or not methods:
+            raise BadRequest("'methods' must be a non-empty list")
+        unknown = [m for m in methods if not isinstance(m, str) or m not in KNOWN_METHODS]
+        if unknown:
+            raise BadRequest(f"unknown method(s) {unknown}; expected some of {sorted(KNOWN_METHODS)}")
+        if not set(methods) & set(VEHICLES[vehicle]["methods"]):
+            raise BadRequest(f"none of {methods} apply to the {VEHICLES[vehicle]['name']}")
+    params = validate_params(body.get("params"))
+    return x0, goal, methods, vehicle, params
+
+
+def validate_params(params):
+    if params is None:
+        return None
+    if not isinstance(params, dict):
+        raise BadRequest("'params' must be an object of numbers")
+    for k, v in params.items():
+        try:
+            ok = np.isfinite(float(v))
+        except (TypeError, ValueError):
+            ok = False
+        if not ok:
+            raise BadRequest(f"parameter '{k}' must be a finite number")
+    return params
 
 
 def make_handler(session: Session):
@@ -378,14 +446,11 @@ def make_handler(session: Session):
             try:
                 body = self._body()
                 if path == "/api/plan":
-                    return self._json(session.plan(
-                        body["x0"],
-                        body["goal"],
-                        body.get("methods"),
-                        body.get("vehicle", "rocket"),
-                        body.get("params"),
-                    ))
+                    return self._json(session.plan(*validate_plan_request(body)))
                 if path == "/api/train":
+                    if body.get("vehicle", "rocket") not in VEHICLES:
+                        raise BadRequest(f"unknown vehicle '{body.get('vehicle')}'")
+                    validate_params(body.get("params"))
                     opts = {**session.defaults, **{k: v for k, v in body.items() if v is not None}}
                     ok, msg = session.start_training(opts)
                     return self._json({"ok": ok, "message": msg}, 200 if ok else 409)
@@ -400,9 +465,13 @@ def make_handler(session: Session):
                     session.pause_event.clear()
                     return self._json({"ok": True})
                 self.send_error(404)
+            except BadRequest as exc:
+                self._json({"error": str(exc), "kind": "invalid"}, exc.code)
+            except json.JSONDecodeError:
+                self._json({"error": "request body is not valid JSON", "kind": "invalid"}, 400)
             except Exception as exc:
                 traceback.print_exc()
-                self._json({"error": str(exc)}, 500)
+                self._json({"error": f"planner failure: {exc}", "kind": "server"}, 500)
 
     return Handler
 

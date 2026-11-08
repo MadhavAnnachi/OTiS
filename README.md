@@ -83,6 +83,8 @@ Every plan is 50 commands spread evenly over the mission time (time step = missi
 
     v̇ = (F_max / m)·u − (c / m)·v − [0, g]
 
+**Stiff plants.** Plain RK4 becomes unstable when drag/mass × time step exceeds about 2.8 (drag would add energy). OTiS splits each command into enough RK4 sub-steps that drag/mass × sub-step ≤ 0.5; every preset needs one, so their results are unchanged. Settings that would need more than 64 sub-steps (drag/mass × time step > 32) are rejected with an explanation instead of producing a false trajectory. The server, the in-browser planners and the training simulator use the same rule.
+
 The plant stays linear for any parameter choice, so the convex program and its exact KKT optimum apply everywhere, and the network can be trained on it through the differentiable JAX simulator. A network is valid only for the physics and objective it was trained on (thrust/mass, gravity, drag/mass, mission time, λ); OTiS matches networks to parameters automatically.
 
 | Preset | Key parameters | λ |

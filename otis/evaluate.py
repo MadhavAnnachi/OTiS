@@ -372,8 +372,8 @@ def run_benchmark(checkpoint, out_json=None, out_md=None, n=config.BENCHMARK_CAS
                         "thrust held constant over each step, integrated with RK4",
             "objective": "J = ||p_N - goal||^2 + lambda * sum_k ||u_k||^2",
             "control_bound": "|u_x|, |u_y| <= 1 per step",
-            "terminal_condition": "soft: terminal position error is penalized in J, terminal velocity is free; "
-                                  "E-guidance instead drives the terminal miss to zero by construction (exact rendezvous)",
+            "terminal_condition": "soft: terminal position error is penalized in J, terminal velocity is free (interception, not rendezvous); "
+                                  "E-guidance steers for zero terminal position error when the goal is reachable within the thrust limit",
             "test_missions": folds * n,
             "sampling": f"{folds} disjoint folds x {n} missions; start and goal positions uniform in "
                         f"[-{plim}, {plim}]^2 m, initial velocity uniform in [-{vlim}, {vlim}]^2 m/s, "

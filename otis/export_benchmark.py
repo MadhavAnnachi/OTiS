@@ -136,7 +136,7 @@ def render(r: dict) -> str:
         ("c-purple", "p99 optimality gap", f"{sig3(G.get('gap_pct_p99'))}%",
          f"99% of {n_test:,} test missions are within this of the exact optimum"),
         ("c-coral", "Control effort vs Apollo E-guidance", signed_pct(eg["fuel"]["pct"]),
-         f"for {M['neural']['miss']['mean']:.4f} m terminal miss · Apollo enforces exact rendezvous and uses "
+         f"for {M['neural']['miss']['mean']:.4f} m terminal miss · Apollo steers for zero position miss and uses "
          f"{abs(dv):.2f}% {'less' if dv >= 0 else 'more'} Δv"),
     ]
     tiles_html = "\n".join(
@@ -150,7 +150,7 @@ def render(r: dict) -> str:
         ("Time step", f"dt = {dt} s"),
         ("Horizon", f"N = {N} steps (T = {horizon:.2f} s)"),
         ("Objective", f"J = ‖p<sub>N</sub> − goal‖² + λ·Σ<sub>k</sub>‖u<sub>k</sub>‖², λ = {lam}; |u<sub>x</sub>|, |u<sub>y</sub>| ≤ {P.get('max_thrust', 1)} per step"),
-        ("Terminal condition", "Soft penalty: the terminal position error is part of J and terminal velocity is free, so OTiS, convex and the KKT optimum trade a small miss for less control effort. E-guidance instead enforces the terminal position exactly (zero-miss rendezvous by construction)."),
+        ("Terminal condition", "Soft penalty on the terminal position; terminal velocity is free (interception, not rendezvous or landing). OTiS, convex and the KKT optimum trade a small miss for less control effort. E-guidance steers for zero terminal position error when the goal is reachable within the thrust limit, and misses when it is not."),
         ("Test missions", f"{n_test:,} ({G['folds']} disjoint folds × {G['problems_per_fold']:,}), never seen in training"),
         ("Sampling", f"Start and goal positions uniform in [−{P.get('position_limit')}, {P.get('position_limit')}]² m; initial velocity uniform in [−{P.get('velocity_limit')}, {P.get('velocity_limit')}]² m/s; drawn from random-number streams separate from training's"),
     ]

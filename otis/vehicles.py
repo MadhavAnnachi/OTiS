@@ -40,6 +40,14 @@ VEHICLES: dict = CATALOG["vehicles"]
 N = config.N_STEPS
 
 
+def substeps_for(drag: float, dt: float) -> int:
+    """Same rule as ``simulator.substeps_for`` (kept JAX-free for the planners)."""
+
+    z = max(float(drag), 0.0) * float(dt)
+    n = max(1, math.ceil(z / config.MAX_DECAY_PER_SUBSTEP - 1e-12))
+    return n if n <= config.MAX_SUBSTEPS else 0
+
+
 # --------------------------------------------------------------------------
 # Parameters -> spec
 # --------------------------------------------------------------------------
@@ -90,8 +98,20 @@ def resolve(vehicle_id: str | None, overrides: dict | None = None) -> dict:
         spec["max_steer"] = math.radians(float(params["max_steer"]))
         spec["speed_limit"] = float(params["speed_limit"])
         spec["drag"] = float(params["drag"])
+    if kind == "point_mass":
+        n_sub = substeps_for(spec["drag"], spec["dt"])
+        spec["substeps"] = n_sub
+        spec["error"] = None if n_sub else (
+            f"Drag/mass × time step = {spec['drag'] * spec['dt']:.3g} is too stiff to simulate reliably "
+            f"(the limit is {config.MAX_DECAY_PER_SUBSTEP * config.MAX_SUBSTEPS:g}). "
+            "Lower the drag or the mission time, or raise the mass."
+        )
+    else:
+        spec["substeps"], spec["error"] = 1, None
     spec["signature"] = signature(spec)
     spec["derived"] = derived_quantities(spec)
+    if spec["error"]:
+        spec["derived"]["warnings"].append(spec["error"])
     return spec
 
 
@@ -194,14 +214,32 @@ def _deriv_pm(state, control, gain, gravity, drag):
     )
 
 
+def point_mass_coefficients(drag, dt):
+    """Exact ZOH coefficients: exp(-k h), integral exp, double integral exp."""
+    z = drag * dt
+    decay = math.exp(-z)
+    if abs(z) < 1e-3:
+        tau = dt * (1 - z / 2 + z*z / 6 - z**3 / 24 + z**4 / 120)
+        q = dt*dt * (0.5 - z / 6 + z*z / 24 - z**3 / 120 + z**4 / 720)
+    else:
+        tau = -math.expm1(-z) / drag
+        q = (dt - tau) / drag
+    return decay, tau, q
+
+
 def rk4_point_mass(state, control, spec):
-    dt, gain, gravity, drag = spec["dt"], spec["gain"], spec["gravity"], spec["drag"]
+    """Exact linear-plant control step (legacy name retained for callers).
+
+    Keep the existing parameter-domain guard; no RK4 approximation is needed.
+    """
+    gain, gravity, drag = spec["gain"], spec["gravity"], spec["drag"]
+    if not (spec.get("substeps") or substeps_for(drag, spec["dt"])):
+        raise ValueError(spec.get("error") or "plant too stiff to integrate")
+    e, tau, q = point_mass_coefficients(drag, spec["dt"])
     control = np.clip(np.asarray(control, dtype=np.float64), -1.0, 1.0)
-    k1 = _deriv_pm(state, control, gain, gravity, drag)
-    k2 = _deriv_pm(state + 0.5 * dt * k1, control, gain, gravity, drag)
-    k3 = _deriv_pm(state + 0.5 * dt * k2, control, gain, gravity, drag)
-    k4 = _deriv_pm(state + dt * k3, control, gain, gravity, drag)
-    return state + dt / 6.0 * (k1 + 2 * k2 + 2 * k3 + k4)
+    acc = gain * control - np.array([0.0, gravity])
+    state = np.asarray(state, dtype=np.float64)
+    return np.r_[state[:2] + tau * state[2:] + q * acc, e * state[2:] + tau * acc]
 
 
 def simulate_point_mass(controls, x0, spec):
@@ -221,19 +259,24 @@ def influence_weights(spec: dict) -> np.ndarray:
 
     The plant is linear, so the terminal position is
     ``free_flight(x0) + sum_k b_k u_k`` per axis. ``b`` is measured with the
-    same RK4 used for scoring, so the convex program and the scorer agree.
+    same exact transition used for scoring, so the convex program and the scorer agree.
     """
 
-    key = (round(spec["gain"], 12), round(spec["drag"], 12), round(spec["dt"], 12))
+    key = (round(spec["gain"], 12), round(spec["drag"], 12), round(spec["dt"], 12), spec.get("substeps", 1))
     cached = _B_CACHE.get(key)
     if cached is not None:
         return cached
-    unit = {**spec, "gravity": 0.0}
-    weights = np.zeros(N, dtype=np.float64)
-    for index in range(N):
-        controls = np.zeros((N, 2), dtype=np.float64)
-        controls[index, 0] = 1.0
-        weights[index] = simulate_point_mass(controls, np.zeros(4), unit)[-1, 0]
+    # The plant is time-invariant, so a unit impulse at step k moves the
+    # endpoint by the x-position after one forced step and N-1-k free steps.
+    # One rollout gives all N weights, with the same integrator as scoring.
+    e, tau, q = point_mass_coefficients(spec["drag"], spec["dt"])
+    position, velocity = spec["gain"] * q, spec["gain"] * tau
+    xs = [position]
+    for _ in range(N - 1):
+        position += tau * velocity
+        velocity *= e
+        xs.append(position)
+    weights = np.array(xs[::-1], dtype=np.float64)
     _B_CACHE[key] = weights
     return weights
 
@@ -393,13 +436,19 @@ def score_plan(controls, x0, goal, spec) -> dict:
     miss = float(np.linalg.norm(path[-1, :2] - goal))
     fuel = float(np.sum(controls ** 2))
     return {
-        "controls": np.round(controls, 6).tolist(),
-        "path": np.round(path, 6).tolist(),
+        "controls": _sig(controls, digits=12),
+        "path": _sig(path),
         "loss": miss * miss + spec["lambda_fuel"] * fuel,
         "miss": miss,
         "fuel": fuel,
         "delta_v": delta_v,
     }
+
+
+def _sig(arr, digits=9):
+    """Round to significant digits (not decimals) so tiny values keep precision."""
+
+    return [[float(f"{v:.{digits}g}") for v in row] for row in np.asarray(arr, dtype=np.float64)]
 
 
 def _best_of(fn, n=3):
@@ -445,10 +494,18 @@ def plan_vehicle(spec, x0, goal, methods=None, neural_fn=None, convex=None) -> d
         optimum = qp_solve_point_mass(x0, goal, spec)
         payload["optimal_loss"] = score_plan(optimum, x0, goal, spec)["loss"]
         if "convex" in chosen:
+            solved = False
             if convex is not None:
                 residual = residual_target(x0, goal, spec)
-                (controls, _sec), ms = _best_of(lambda: convex.solve_residual(residual))
-                pack("convex", controls, ms, {"solver": "CVXPY + Clarabel"})
+                try:
+                    (controls, _sec), ms = _best_of(lambda: convex.solve_residual(residual))
+                    pack("convex", controls, ms, {"solver": "CVXPY + Clarabel"})
+                    solved = True
+                except Exception as exc:  # numerical failure: report it, fall back to the exact optimum
+                    payload.setdefault("notices", []).append(
+                        f"Clarabel could not solve this mission ({exc}); the convex row shows the exact KKT optimum instead.")
+            if solved:
+                pass
             else:
                 controls, ms = _best_of(lambda: qp_solve_point_mass(x0, goal, spec))
                 pack("convex", controls, ms, {"solver": "KKT transcription"})

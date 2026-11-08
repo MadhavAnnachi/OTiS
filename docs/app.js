@@ -22,7 +22,14 @@
   const api = async (path, body) => {
     const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
     const r = await fetch(path, opt);
-    return r.json();
+    let data = {};
+    try { data = await r.json(); } catch { /* empty or non-JSON body */ }
+    if (!r.ok) {
+      const err = new Error(data.error || `HTTP ${r.status}`);
+      err.http = r.status; err.kind = data.kind; err.data = data;
+      throw err;
+    }
+    return data;
   };
   let toastTimer;
   const toast = (msg) => {
@@ -342,14 +349,14 @@
     ctx.quadraticCurveTo(4 * dpr, 7 * dpr, 12 * dpr, 0);
     ctx.fill(); ctx.stroke();
   }
-  function drawCraft(ctx, V, path, controls, t, color, dpr) {
+  function drawCraft(ctx, V, path, controls, t, color, dpr, kindOverride) {
     if (!path) return;
     const s = samplePath(path, t);
     const k = clamp(Math.floor(t), 0, (controls?.length || 1) - 1);
     const u = controls ? controls[k] : [0, 0];
     const [px, py] = V.toPx(s[0], s[1]);
     const thrustMag = Math.hypot(u[0], u[1]);
-    const kind = currentVehicle().draw || S.vehicle || "rocket";
+    const kind = kindOverride || currentVehicle().draw || S.vehicle || "rocket";
     // Every vehicle points along its direction of travel (path tangent), so the
     // rocket no longer flips when the plan reverses thrust to brake.
     const ang = headingAt(V, path, t);
@@ -464,18 +471,21 @@
       if (p && S.show[m]) drawCraft(ctx, V, p.path, p.controls, S.t, C[m], d);
     });
     // legend
-    $("#sim-legend").innerHTML = Object.keys(NAMES).filter((m) => S.plans[m] && S.show[m])
-      .map((m) => `<span><i style="background:${C[m]}"></i>${NAMES[m]}</span>`).join("") || "<span>No plans</span>";
+    $("#sim-legend").innerHTML = (S.planError ? "<span>Last valid plan</span>" : "") + (Object.keys(NAMES).filter((m) => S.plans[m] && S.show[m])
+      .map((m) => `<span><i style="background:${C[m]}"></i>${NAMES[m]}</span>`).join("") || "<span>No plans</span>");
   }
 
   function hitTest(px, py) {
     if (!simV) return null;
     const r = 18 * simDpr;
-    const near = (x, y) => { const [a, b] = simV.toPx(x, y); return Math.hypot(a - px, b - py) < r; };
-    if (near(S.x0[0] + S.x0[2] * velScale(), S.x0[1] + S.x0[3] * velScale())) return "vel";
-    if (near(S.goal[0], S.goal[1])) return "goal";
-    if (near(S.x0[0], S.x0[1])) return "start";
-    return null;
+    const dist = (x, y) => { const [a, b] = simV.toPx(x, y); return Math.hypot(a - px, b - py); };
+    const ds = dist(S.x0[0], S.x0[1]);
+    // The start puck's own centre always wins, so a short velocity arrow can
+    // never hide it; otherwise take the nearest handle within reach.
+    if (ds < 9 * simDpr) return "start";
+    const c = [["vel", dist(S.x0[0] + S.x0[2] * velScale(), S.x0[1] + S.x0[3] * velScale())], ["goal", dist(S.goal[0], S.goal[1])], ["start", ds]]
+      .filter(([, d]) => d < r).sort((a, b) => a[1] - b[1]);
+    return c.length ? c[0][0] : null;
   }
 
   const evPos = (e) => { const r = simCv.getBoundingClientRect(); const k = simCv.width / Math.max(1, r.width); return [(e.clientX - r.left) * k, (e.clientY - r.top) * k]; };
@@ -517,13 +527,20 @@
 
   // planning requests: at most one in flight, latest wins
   let inflight = false, pending = false;
-  function applyLocalPlan(res, vehicle) {
+  function applyLocalPlan(res, vehicle, rev) {
     if (vehicle !== S.vehicle) return; // a stale reply for a tab the user already left
+    if (res.error) { showPlanError(res.error, res.spec); return; }
+    S.planError = null;
+    S.notices = res.notices || [];
     S.plans = res.plans || {};
     S.optimalLoss = res.optimal_loss;
     S.spec = res.spec || null;
     S.neural = res.neural_status || null;
-    if (!drag && res.x0) { S.x0 = res.x0; S.goal = res.goal; saveScenario(); }
+    // Adopt the server's (workspace-clipped) start/goal only if nothing was
+    // edited after this request left; otherwise the newer edit wins and the
+    // pending request re-plans it.
+    if (!drag && res.x0 && (rev === undefined || rev === S.rev)) { S.x0 = res.x0; S.goal = res.goal; saveScenario(); }
+    updateStatus(S.server);
     renderCompare();
     renderScenario();
     renderDerived();
@@ -532,24 +549,41 @@
     drawThrustChart();
   }
   const planLocal = () => window.OTiSPlant.planLocal(S.vehicle, S.x0, S.goal, currentParams());
+  // Keep the last good plans on screen (marked stale) and say what is wrong.
+  function showPlanError(message, spec) {
+    S.planError = message;
+    // Keep result metadata with the retained map; diagnostics use current fields.
+    S.neural = { available: false, trainable: false, reason: message };
+    updateStatus(S.server);
+    renderCompare(); renderDerived(); renderNeural();
+    drawAll();
+  }
   async function requestPlan(force) {
+    S.rev = (S.rev || 0) + 1;
     if (inflight) { pending = true; return; }
     inflight = true;
     try {
       if (!S.catalog) return;
-      const vehicle = S.vehicle;
+      const vehicle = S.vehicle, rev = S.rev;
       if (S.staticMode && window.OTiSPlant) {
-        applyLocalPlan(planLocal(), vehicle);
+        applyLocalPlan(planLocal(), vehicle, rev);
       } else {
-        const res = await api("/api/plan", { x0: S.x0, goal: S.goal, vehicle, params: currentParams(vehicle) });
-        if (res.error) throw new Error(res.error);
-        applyLocalPlan(res, vehicle);
+        const res = await api("/api/plan", { x0: S.x0.slice(), goal: S.goal.slice(), vehicle, params: currentParams(vehicle) });
+        applyLocalPlan(res, vehicle, rev);
       }
     } catch (err) {
-      console.error(err);
-      if (!S.staticMode && window.OTiSPlant && S.catalog) {
+      if (err.http) {
+        // The server answered: invalid physics (4xx) or a planner failure (5xx).
+        // Stay on the server; never swap silently to the browser copy.
+        showPlanError(err.message);
+      } else if (!S.staticMode && window.OTiSPlant && S.catalog) {
+        // The server is unreachable: fall back to the in-browser planners, visibly.
+        console.warn("Planner server unreachable; using the in-browser planners.", err);
         S.staticMode = true;
-        applyLocalPlan(planLocal(), S.vehicle);
+        try { applyLocalPlan(planLocal(), S.vehicle); } catch (e) { showPlanError(e.message); }
+        toast("Server unreachable · planning in the browser (no network)");
+      } else {
+        showPlanError(err.message);
       }
     } finally {
       inflight = false;
@@ -558,9 +592,9 @@
   }
 
   const fmtIn = (v) => (v == null || !isFinite(v) ? "" : String(+Number(v).toPrecision(5)));
-  function renderScenario() {
+  function renderScenario(force = false) {
     $$("[data-sc]").forEach((el) => {
-      if (el === document.activeElement) return;
+      if (!force && el === document.activeElement) return;
       const [k, i] = el.dataset.sc.split(".");
       el.value = fmtIn(S[k][+i]);
       el.classList.remove("invalid");
@@ -568,7 +602,8 @@
   }
 
   function deltaCell(v, ref, lowerBetter = true) {
-    if (v == null || ref == null || !isFinite(ref) || ref === 0) return `<span class="delta neutral"></span>`;
+    if (v == null || ref == null || !isFinite(ref)) return `<span class="delta neutral"></span>`;
+    if (Math.abs(ref) < 1e-6 || Math.abs(v - ref) > 100 * Math.abs(ref)) return `<span class="delta neutral">${v >= ref ? "+" : ""}${fmtSig(v - ref)} abs</span>`;
     const pct = (100 * (v - ref)) / Math.abs(ref);
     const cls = Math.abs(pct) < 0.5 ? "neutral" : (pct < 0) === lowerBetter ? "good" : "bad";
     return `<span class="delta ${cls}">${pct >= 0 ? "+" : ""}${pct.toFixed(Math.abs(pct) < 10 ? 1 : 0)}%</span>`;
@@ -586,11 +621,24 @@
         ${isRef ? "<div></div><div></div><div></div>" : `${deltaCell(p.miss, ref?.miss)}${deltaCell(p.fuel, ref?.fuel)}${deltaCell(p.ms, ref?.ms)}`}
       </div></div>`;
     });
-    $("#compare").innerHTML = `<div class="row"><div class="cmp-grid cmp-head"><div>Method</div><div class="num">Miss m</div><div class="num">Control effort Σu²</div><div class="num">ms</div></div></div>` + rows.join("");
-    if (S.plans.neural && S.optimalLoss) {
-      const gap = (100 * (S.plans.neural.loss - S.optimalLoss)) / S.optimalLoss;
-      $("#opt-note").textContent = `network gap to optimum ${gap >= 0 ? "+" : ""}${gap.toFixed(2)}%`;
-    } else $("#opt-note").textContent = "";
+    $("#compare").innerHTML = (S.planError ? `<div class="note err">Last valid plan · results do not match the current fields.</div>` : "") + `<div class="row"><div class="cmp-grid cmp-head"><div>Method</div><div class="num">Miss m</div><div class="num">Control effort Σu²</div><div class="num">ms</div></div></div>` + rows.join("");
+    const ng = networkGap();
+    $("#opt-note").textContent = !ng ? "" : ng.pct != null
+      ? `network gap to optimum ${ng.pct >= 0 ? "+" : ""}${Math.abs(ng.pct) >= 100 ? Math.round(ng.pct).toLocaleString() : ng.pct.toFixed(2)}%`
+      : `network excess cost +${fmtSig(Math.max(0, ng.excess))} (optimum ≈ 0)`;
+  }
+
+  // How far the network's plan is from the exact optimum on this mission.
+  // When the optimum costs almost nothing (goal at the start), a percentage
+  // is meaningless, so the gap is reported as an absolute excess instead.
+  function networkGap() {
+    const pn = S.plans?.neural, opt = S.optimalLoss;
+    if (!pn || opt == null || !isFinite(opt) || S.planError) return null;
+    const L = WS(), floor = 1e-4 * L * L;
+    const excess = pn.loss - opt;
+    const tiny = opt < floor;
+    const pct = tiny ? null : (100 * excess) / opt;
+    return { excess, pct, miss: pn.miss, optMiss: S.plans.convex?.miss, significant: tiny ? (excess > floor || (opt < 1e-6 && excess > 1e-5)) : pct > 5 };
   }
 
   // thrust profile chart
@@ -705,7 +753,7 @@
     drawGoal(ctx, V, f.goal, d);
     drawStart(ctx, V, f.x0, d, null, { velScale: tvs });
     trT = (trT + 0.35) % (S.cfg.n_steps + 12);
-    drawCraft(ctx, V, f.path, f.controls, Math.min(trT, S.cfg.n_steps), C.neural, d);
+    drawCraft(ctx, V, f.path, f.controls, Math.min(trT, S.cfg.n_steps), C.neural, d, S.catalog?.vehicles?.[tp.vehicle]?.draw);
     $("#train-badge").innerHTML = `Step ${(f.step ?? 0).toLocaleString()} &nbsp;·&nbsp; miss ${fmtSig(f.distance)} &nbsp;·&nbsp; loss ${fmtSig(f.loss)}`;
   }
 
@@ -718,7 +766,7 @@
     const series = [[hist.val_loss || [], C.neural], [hist.val_terminal || [], C.convex]];
     const vals = series.flatMap(([s]) => s).filter((v) => v > 0 && isFinite(v));
     const padL = 34 * d, padR = 8 * d, top = 8 * d, bottom = h - 18 * d;
-    ctx.font = `${10 * d}px ${css("--font")}`;
+    ctx.font = `${12 * d}px ${css("--font")}`;
     if (steps.length < 2 || !vals.length) {
       ctx.fillStyle = C.label3; ctx.fillText("No training history yet", padL, h / 2); return;
     }
@@ -766,7 +814,12 @@
   async function startTraining() {
     if (S.staticMode) return toast("Training needs the Python server: run python main.py");
     if (currentVehicle().kind !== "point_mass") return toast("Network training needs a thrust-driven plant (Rocket, UAV or USV)");
-    const res = await api("/api/train", { size: S.size, steps: +stepsEl.value, vehicle: S.vehicle, params: currentParams(), x0: S.x0, goal: S.goal });
+    let res;
+    try {
+      res = await api("/api/train", { size: S.size, steps: +stepsEl.value, vehicle: S.vehicle, params: currentParams(), x0: S.x0, goal: S.goal });
+    } catch (err) {
+      return toast(err.data?.message || err.message || "Could not start training");
+    }
     if (!res.ok) return toast(res.message || "Could not start training");
     S.snapshots = []; S.evoLive = true; S.evoIndex = -1;
     toast(`Training ${S.size} model on the ${currentVehicle().name} · ${(+stepsEl.value).toLocaleString()} steps`);
@@ -853,18 +906,22 @@
     el.className = "status";
     if (!st) { tx.textContent = S.staticMode ? "Static demo" : "Server offline"; el.classList.add(S.staticMode ? "ready" : "warn"); return; }
     const dev = (st.config?.device || "").toLowerCase().includes("cuda") ? "GPU" : "CPU";
-    const params = st.model?.n_params ? fmtParams(st.model.n_params) + " params" : "no model";
+    // Describe the network for the plant selected now, not the last training run.
+    const nm = S.neural?.available ? S.neural.model : null;
+    const net = S.neural?.live ? "live network" : nm ? `${fmtParams(nm.n_params)} ${currentVehicle().name} network` : "no network for these parameters";
     const map = {
-      idle: ["warn", `Untrained · ${dev}`],
-      pretrained: ["ready", `Ready · ${params} · ${dev}`],
-      compiling: ["live", "Compiling…"],
-      training: ["live", `Training · ${dev}`],
-      paused: ["warn", "Paused"],
-      done: ["ready", `Trained · ${params} · ${dev}`],
-      error: ["warn", "Error · see terminal"],
+      idle: ["warn", `Ready · ${net}`],
+      pretrained: ["ready", `Ready · ${net}`],
+      compiling: ["live", `Compiling · ${dev}`],
+      training: ["live", `Training on ${dev}`],
+      paused: ["warn", "Training paused"],
+      done: ["ready", `Ready · ${net}`],
+      error: ["warn", "Training error · see terminal"],
     };
-    const [cls, text] = map[st.phase] || ["", st.phase];
+    let [cls, text] = map[st.phase] || ["", st.phase];
+    if (S.planError && !["compiling", "training", "paused"].includes(st.phase)) { cls = "warn"; text = "Planner error · see Parameters"; }
     el.classList.add(cls); tx.textContent = text;
+    el.title = `Selected plant: ${net}. Plans use frozen weights on the CPU (about 1 ms); training runs on the ${dev} (${st.config?.device || "?"}).`;
 
     const training = ["training", "compiling", "paused"].includes(st.phase);
     $("#btn-train").disabled = training || currentVehicle().kind !== "point_mass";
@@ -1032,7 +1089,7 @@
           renderScenario();
         }
         persist();
-        renderTrainPlant();
+        renderTrainPlant(); renderDerived();
         planSoon();
       });
       el.addEventListener("change", () => { if (!el.classList.contains("invalid")) el.value = fmtIn(currentParams()[f.key]); });
@@ -1070,7 +1127,7 @@
   function renderDerived() {
     const box = $("#derived");
     if (!box) return;
-    const d = S.spec?.derived || (window.OTiSPlant && S.catalog ? window.OTiSPlant.resolve(S.vehicle, currentParams()).derived : null);
+    const d = window.OTiSPlant && S.catalog ? window.OTiSPlant.resolve(S.vehicle, currentParams()).derived : S.spec?.derived;
     if (!d) { box.innerHTML = ""; return; }
     const n = (v, digits = 3) => (v == null || !isFinite(v) ? "—" : +Number(v).toPrecision(digits) + "");
     const rows = [["Time step", `${n(d.dt)} s`]];
@@ -1084,7 +1141,9 @@
       rows.push(["Min turn radius", `${n(d.min_turn_radius)} m`]);
       rows.push(["Reach from rest", `${n(d.reach)} m`]);
     }
-    const warns = (d.warnings || []).map((w) => `<div class="note">${esc(w)}</div>`).join("");
+    const errs = S.planError ? `<div class="note err"><b>Planner error.</b> ${esc(S.planError)}${Object.keys(S.plans || {}).length ? " The map shows the last valid plan." : ""}</div>` : "";
+    const notes = (S.notices || []).map((w) => `<div class="note info">${esc(w)}</div>`).join("");
+    const warns = errs + notes + (d.warnings || []).filter((w) => w !== S.planError).map((w) => `<div class="note">${esc(w)}</div>`).join("");
     box.innerHTML = rows.map(([l, v]) => `<div class="drow"><span class="dlab">${l}</span><span class="mono">${v}</span></div>`).join("") +
       (warns ? `<div class="notes">${warns}</div>` : "");
   }
@@ -1096,7 +1155,8 @@
     const training = ["training", "compiling", "paused"].includes(S.server?.phase);
     const trainingThis = training && S.server?.plant?.signature && S.server.plant.signature === S.spec?.signature;
     let cls = "off", title = "No network for these parameters", body = "", action = "";
-    if (!st) { body = "<p>Waiting for the planner…</p>"; }
+    if (S.planError) { title = "Current parameters not validated"; body = "<p>Planning failed for the current fields. Retained plans are from the last valid request, not evidence of a matching trained network.</p>"; }
+    else if (!st) { body = "<p>Waiting for the planner…</p>"; }
     else if (trainingThis) {
       cls = "live"; title = "Training on these parameters";
       body = `<p>The plan updates live from the current weights. Watch it in the Training tab.</p>`;
@@ -1106,6 +1166,11 @@
       cls = "on"; title = "Network trained for these parameters";
       body = `<p>${m.size ? esc(m.size) + " · " : ""}${m.n_params ? fmtParams(m.n_params) + " parameters · " : ""}${m.step ? "best step " + m.step.toLocaleString() : ""}${m.workspace ? ` · trained on ±${m.workspace} m` : ""}</p>` +
         (st.warning ? `<div class="note">${esc(st.warning)}</div>` : "");
+      const ng = networkGap();
+      if (ng?.significant) {
+        const how = ng.pct != null ? `costs ${ng.pct >= 100 ? Math.round(ng.pct).toLocaleString() : ng.pct.toFixed(1)}% more than the optimum` : `misses by ${fmtSig(ng.miss)} m where the optimum misses by ${fmtSig(ng.optMiss ?? 0)} m`;
+        body += `<div class="note">On this mission the network's plan ${how}. The network is under-trained here; the convex plan is the reliable one. Training longer or a larger model narrows the gap.</div>`;
+      }
     } else {
       body = `<p>${esc(st.reason || "")}</p>`;
       if (st.trainable && !S.staticMode) {
@@ -1137,7 +1202,10 @@
       const k = S.spec?.derived?.stiffness;
       if (k > 1e4) note = `<div class="note">Stiffness κ ≈ ${k.toExponential(1)}: expect a slower climb to the optimum. A larger fuel weight λ trains faster.</div>`;
     }
-    box.innerHTML = `<div class="row"><span class="grow">${esc(tp.name)}</span><span class="muted">${training ? "this run" : "next run"}</span></div><div class="plant-summary">${chips}</div>${note ? `<div class="notes">${note}</div>` : ""}`;
+    const last = S.server?.plant;
+    const lastLine = !training && last?.name && ["done", "error"].includes(S.server?.phase)
+      ? `<div class="note info">The map, progress and log show the <b>last run</b>: ${esc(last.name)}${S.server.n_params || S.server.model?.n_params ? " · " + fmtParams(S.server.n_params || S.server.model.n_params) + " parameters" : ""}${S.server.best_step != null ? " · best step " + Number(S.server.best_step).toLocaleString() : ""}${last.signature !== S.spec?.signature ? ", not the plant above" : ""}.</div>` : "";
+    box.innerHTML = `<div class="row"><span class="grow">${esc(tp.name)}</span><span class="muted">${training ? "this run" : "next run"}</span></div><div class="plant-summary">${chips}</div>${note || lastLine ? `<div class="notes">${note}${lastLine}</div>` : ""}`;
     $("#btn-train").disabled = training || kind !== "point_mass";
   }
 
@@ -1146,7 +1214,8 @@
     delete S.params[S.vehicle];
     delete S.scen[S.vehicle];
     loadScenario(); persist();
-    buildParamsPanel(); renderScenario(); renderTrainPlant();
+    clearTimeout(planTimer);
+    buildParamsPanel(); renderScenario(true); renderTrainPlant();
     S.t = 0; S.playing = true;
     requestPlan(true);
     toast(`${currentVehicle().name} preset restored`);
@@ -1166,16 +1235,41 @@
     try {
       const doc = JSON.parse(await file.text());
       if (!doc || !S.catalog.vehicles[doc.vehicle]) throw new Error("unknown vehicle");
-      const keys = new Set(S.catalog.schema[S.catalog.vehicles[doc.vehicle].kind].filter((f) => !f.hidden).map((f) => f.key));
-      const params = {};
-      Object.entries(doc.params || {}).forEach(([k, v]) => { if (keys.has(k) && isFinite(+v)) params[k] = +v; });
-      S.params[doc.vehicle] = params;
+      const veh = S.catalog.vehicles[doc.vehicle];
+      const fields = S.catalog.schema[veh.kind].filter((f) => !f.hidden && !(veh.locked || []).includes(f.key));
+      const params = {}, adjusted = [], bad = [];
+      fields.forEach((f) => {
+        if (!doc.params || !(f.key in doc.params)) return;
+        const v = Number(doc.params[f.key]);
+        if (doc.params[f.key] === null || doc.params[f.key] === "" || !isFinite(v)) { bad.push(f.label); return; }
+        const c = clamp(v, f.min, f.max);
+        if (c !== v) adjusted.push(`${f.label} ${+v.toPrecision(6)} → ${+c.toPrecision(6)}`);
+        params[f.key] = c;
+      });
+      if (bad.length) throw new Error(`not a number: ${bad.join(", ")}`);
+      const L = +(params.workspace ?? veh.params.workspace);
       const sc = doc.scenario || {};
-      if (Array.isArray(sc.x0) && sc.x0.length === 4 && Array.isArray(sc.goal) && sc.goal.length === 2 && [...sc.x0, ...sc.goal].every((v) => isFinite(+v))) {
-        S.scen[doc.vehicle] = { x0: sc.x0.map(Number), goal: sc.goal.map(Number) };
+      let scen = null;
+      if (sc.x0 !== undefined || sc.goal !== undefined) {
+        if (!(Array.isArray(sc.x0) && sc.x0.length === 4 && Array.isArray(sc.goal) && sc.goal.length === 2 && [...sc.x0, ...sc.goal].every((v) => v !== null && v !== "" && isFinite(+v))))
+          throw new Error("scenario needs x0 [x, y, vx, vy] and goal [x, y] as numbers");
+        const x0 = sc.x0.map(Number), goal = sc.goal.map(Number);
+        [0, 1].forEach((i) => { const c = clamp(x0[i], -L, L); if (c !== x0[i]) adjusted.push(`start ${"xy"[i]} → ${c}`); x0[i] = c; });
+        [0, 1].forEach((i) => { const c = clamp(goal[i], -L, L); if (c !== goal[i]) adjusted.push(`goal ${"xy"[i]} → ${c}`); goal[i] = c; });
+        scen = { x0, goal };
       }
-      $(`#vehicle-tabs button[data-vehicle="${doc.vehicle}"]`).click();
-      toast(`Loaded ${file.name}`);
+      S.params[doc.vehicle] = params;
+      if (scen) S.scen[doc.vehicle] = scen;
+      if (doc.vehicle === S.vehicle) {
+        // Same vehicle: apply directly (a tab click would save the old scenario over it).
+        if (scen) { S.x0 = scen.x0.slice(); S.goal = scen.goal.slice(); }
+        S.spec = null; persist();
+        buildParamsPanel(); renderTrainPlant(); renderScenario();
+        S.t = S.cfg.n_steps; requestPlan(true);
+      } else {
+        $(`#vehicle-tabs button[data-vehicle="${doc.vehicle}"]`).click();
+      }
+      toast(adjusted.length ? `Loaded ${file.name} · adjusted to limits: ${adjusted.join("; ")}` : `Loaded ${file.name}`);
     } catch (err) {
       toast(`Could not read that file: ${err.message}`);
     }
