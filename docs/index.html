@@ -191,58 +191,60 @@
     </section>
 
     <!-- ======================= ABOUT ======================= -->
-    <section class="view" id="view-about">
+    <section class="view" id="view-about" aria-labelledby="about-title">
       <div class="hero">
-        <h1>How OTiS works.</h1>
+        <h1 id="about-title">A thrust plan, from start to goal.</h1>
       </div>
       <div class="about">
         <div class="card about-lead">
-          <p>OTiS plans a vehicle's whole maneuver in one step. You give it where the vehicle is, how fast it is moving and where it has to be. A neural network answers with a complete plan: 50 thrust commands, one for each moment of the mission.</p>
-          <p>The network is not trained on examples. It learns by flying practice missions through a physics simulator and measuring, exactly, how every command it chose affected the miss and the fuel. There is no dataset to collect and no trial-and-error reinforcement learning.</p>
+          <p>OTiS plans simulated maneuvers for a rocket, a drone (UAV), or a surface boat (USV). Set a starting position, velocity and goal, then compare the paths and see how close each planner gets for the effort it spends.</p>
+          <p>The interesting question is whether a neural network can learn to produce a useful plan in one pass, instead of solving an optimization problem afresh for every mission. OTiS checks that learned shortcut against the convex optimum: the best score available under the same model and thrust limits.</p>
         </div>
 
-        <div class="group-title about-h">The training loop</div>
+        <h2 class="about-h">From a mission to 50 commands</h2>
         <ol class="steps">
-          <li><span class="n">1</span><div><b>Describe the vehicle</b><p>Mass, thrust, drag, gravity, mission time and workspace, or a preset. This defines the physics; it is the only input OTiS needs.</p></div></li>
-          <li><span class="n">2</span><div><b>Invent missions</b><p>Each step draws 1,024 random starts, velocities and goals inside the workspace. The simulator is the data source.</p></div></li>
-          <li><span class="n">3</span><div><b>Plan and fly</b><p>The network outputs a thrust plan for each mission, and the plans are flown through a differentiable exact linear-plant simulator.</p></div></li>
-          <li><span class="n">4</span><div><b>Score</b><p>Every flight gets one number: J = miss² + λ·control effort. Small λ favors accuracy; large λ saves fuel.</p></div></li>
-          <li><span class="n">5</span><div><b>Learn exactly</b><p>Because the simulator is differentiable, the exact gradient of J flows back through every integration step into the network's weights.</p></div></li>
+          <li><span class="n" aria-hidden="true">1</span><div><h3>Describe the mission</h3><p>The network reads six numbers: two for position, two for velocity and two for the goal. It outputs 50 two-axis thrust commands at once. Each command is held for an equal slice of the mission time.</p></div></li>
+          <li><span class="n" aria-hidden="true">2</span><div><h3>Learn through practice</h3><p>Training draws random simulated missions and flies the network's plans. The simulator is differentiable: it tells training how changing a command would change the score. Those gradients, or directions for improvement, update the network without a collection of expert flight plans.</p></div></li>
+          <li><span class="n" aria-hidden="true">3</span><div><h3>Balance miss and effort</h3><p>The score combines squared final miss distance with control effort, the sum of squared thrust commands. Effort is a fuel proxy, not a measurement of propellant burned. A larger fuel weight puts more value on gentle commands; a smaller one favors accuracy.</p></div></li>
         </ol>
-        <p class="about-note">After training, a new mission costs a single forward pass: about a millisecond for one plan, and thousands of plans at once on a GPU.</p>
 
         <div class="about-grid">
           <div class="card about-card">
-            <div class="group-title">The physics</div>
-            <p>Thrust-driven vehicles (Rocket, UAV, USV) are a point mass in a plane, state [x, y, v<sub>x</sub>, v<sub>y</sub>]:</p>
-            <p class="eq">v̇ = (F<sub>max</sub>/m)·u − (c/m)·v − [0, g]</p>
-            <p>The throttle u is limited to [−1, 1] on each axis. A mission is 50 commands spread evenly over the mission time, each held for one step and integrated with fourth-order Runge–Kutta. Units are SI.</p>
+            <h2>Try it and compare</h2>
+            <p>Choose Rocket, UAV or USV in the Simulator. Drag the start, velocity arrow or goal, or edit the vehicle parameters. Compare paths, final miss, effort and planning time on the same mission.</p>
+            <p>The neural planner is an approximation, not a guarantee of the best plan. The convex / KKT optimum is the reliable reference for this model, so check the score gap as well as the path.</p>
+            <p>Available neural weights, live training and recorded training replays depend on the running app. Its Network and Training panels show what is available for the selected parameters.</p>
           </div>
           <div class="card about-card">
-            <div class="group-title">The network</div>
-            <p>A residual multilayer perceptron: pre-LayerNorm blocks with GELU and skip connections, from 0.6 M to 51 M parameters.</p>
-            <p>It is given physics-informed inputs: positions and velocities scaled to the workspace, and the zero-effort miss, which is where the vehicle would end up if it never fired. Its output passes through tanh, so every command stays inside the thrust limit.</p>
-          </div>
-          <div class="card about-card">
-            <div class="group-title">What it is compared with</div>
-            <p><b>Convex optimization</b> (CVXPY + Clarabel): the way flight systems such as G-FOLD solve this class of problem, re-solved for every mission.</p>
-            <p><b>Apollo E-guidance</b>: the classic closed-form steering law. It aims to drive final position error to zero, spending more control effort to do so. Saturation and drag compensation can cause misses even on reachable missions; this bounded law is not a reachability guarantee. It does not try to match a final velocity.</p>
-            <p><b>Exact optimum</b>: because this plant is linear, the true best plan can be computed, so the network's distance from optimal is measured, not estimated.</p>
-          </div>
-          <div class="card about-card">
-            <div class="group-title">One network per plant</div>
-            <p>A trained network is valid only for the physics and objective it learned: thrust-to-mass, gravity, drag-to-mass, mission time and λ. OTiS fingerprints each network with those values and shows it only when they match. Change a parameter and the Simulator offers to train a new one.</p>
-            <p>The stiffness κ in the Simulator predicts how hard that training will be. High thrust-to-weight with a small λ learns slowest.</p>
-          </div>
-          <div class="card about-card">
-            <div class="group-title">Honest limits</div>
-            <p>Training covers linear thrust plants today. The objective scores only the final position and the control effort; the arrival velocity is free, so a mission is an interception (fly-through), not a landing or docking. Missing is penalized rather than forbidden, so the optimizer and the network trade a small miss for less effort; E-guidance aims for zero miss but can miss both unreachable goals and some reachable goals under saturation.</p><p>The convex solver returns the provable optimum of this objective. The network returns an approximation without that guarantee, so the Simulator shows how far each network plan is from the optimum, and warns when a network is under-trained. Its case is a fixed, tiny cost per plan that stays fixed as problems grow harder.</p>
-          </div>
-          <div class="card about-card">
-            <div class="group-title">Built with</div>
-            <p>JAX, Flax and Optax for the simulator, network and training (on an RTX 5070 Ti through WSL2); CVXPY with Clarabel and OSQP for the solvers; SciPy for an independent integrator check. The interface is plain HTML, CSS and JavaScript with no build step.</p>
+            <h2>Know what arrival means</h2>
+            <p>This is a fly-through, not a landing. The score cares about position at the end of the mission, but does not require a final velocity or a soft stop. A miss is penalized, not forbidden, so even the optimum may trade some accuracy for less effort.</p>
+            <p>Apollo E-guidance is a bounded steering law: a formula that repeatedly aims toward the goal while respecting thrust limits. It is not a reachability guarantee. Saturation (requested thrust exceeding the limit) and drag compensation can cause misses even on reachable missions. It does not match a final velocity either.</p>
           </div>
         </div>
+
+        <details class="about-technical">
+          <summary>Technical details</summary>
+          <div class="about-technical-body">
+            <h2>The model and its exact transition</h2>
+            <p>All three presets use a two-dimensional point-mass model: position and velocity, without attitude, obstacles or detailed aerodynamics. Thrust accelerates the vehicle, linear drag slows it, and gravity acts downward. Units are SI.</p>
+            <p class="eq" role="math" aria-label="Position derivative equals velocity. Velocity derivative equals maximum thrust over mass times throttle, minus drag coefficient over mass times velocity, minus downward gravity."><span>d<var>p</var>/d<var>t</var> = <var>v</var></span><span>d<var>v</var>/d<var>t</var> = (<var>F</var><sub>max</sub>/<var>m</var>)<var>u</var> &minus; (<var>c</var>/<var>m</var>)<var>v</var> &minus; [0, <var>g</var>]</span></p>
+            <p>Here <var>p</var> and <var>v</var> are two-axis position and velocity; <var>F</var><sub>max</sub> is maximum thrust per axis, <var>m</var> is mass, <var>c</var> is the linear drag coefficient and <var>g</var> is gravity. Each throttle component <var>u</var> is bounded between &minus;1 and 1.</p>
+            <p>Python and the browser use an exact linear zero-order-hold transition: they solve this model over each step with thrust held constant, rather than approximating it with RK4. With step length <var>h</var> = mission time / 50, define <var>k</var> = <var>c</var>/<var>m</var> and <var>a</var> = (<var>F</var><sub>max</sub>/<var>m</var>)<var>u</var> &minus; [0, <var>g</var>].</p>
+            <p class="eq" role="math" aria-label="Decay e equals exp of minus k h. Tau equals one minus e divided by k. q equals h minus tau divided by k. Next position equals position plus tau times velocity plus q times acceleration. Next velocity equals e times velocity plus tau times acceleration."><span><var>e</var> = exp(&minus;<var>k h</var>), &nbsp; <var>&tau;</var> = (1 &minus; <var>e</var>)/<var>k</var>, &nbsp; <var>q</var> = (<var>h</var> &minus; <var>&tau;</var>)/<var>k</var></span><span><var>p</var><sub>next</sub> = <var>p</var> + <var>&tau;v</var> + <var>qa</var></span><span><var>v</var><sub>next</sub> = <var>ev</var> + <var>&tau;a</var></span></p>
+            <p>The implementation uses <code>expm1</code> and small-drag series to avoid cancellation: subtracting nearly equal numbers would otherwise lose precision. At zero drag, <var>e</var> = 1, <var>&tau;</var> = <var>h</var> and <var>q</var> = <var>h</var><sup>2</sup>/2. Exact refers to this simplified model, subject to floating-point precision, not to real-world flight.</p>
+            <p>The legacy stiffness admission limit remains: combinations with (<var>c</var>/<var>m</var>)<var>h</var> &gt; 32 are rejected, corresponding to more than 64 former RK4 substeps. This is a retained parameter guard, not the integrator used today.</p>
+
+            <h2>What training minimizes</h2>
+            <p class="eq" role="math" aria-label="J equals squared distance between final position and goal, plus lambda times the sum from step zero to 49 of squared x throttle plus squared y throttle."><span><var>J</var> = &Vert;<var>p</var><sub>50</sub> &minus; <var>p</var><sub>goal</sub>&Vert;<sup>2</sup></span><span>+ <var>&lambda;</var> &sum;<sub>i=0</sub><sup>49</sup> (<var>u</var><sub>i,x</sub><sup>2</sup> + <var>u</var><sub>i,y</sub><sup>2</sup>)</span></p>
+            <p><var>&lambda;</var> is <code>lambda_fuel</code>, the weight on effort. There is no terminal-velocity term. The same objective scores the neural and convex plans; the effort sum is not a physical fuel-consumption model.</p>
+            <p>Linear dynamics and box-bounded commands make this a convex quadratic problem: a problem whose optimum can be found reliably rather than guessed. The KKT optimality conditions provide a numerical reference by bisection. The Python app can also solve the same problem with CVXPY and Clarabel; the browser uses the KKT solution.</p>
+
+            <h2>The learned shortcut</h2>
+            <p>The policy is a residual multilayer perceptron: connected layers with skip connections that help training. Pre-layer normalization rescales internal features, GELU is a smooth activation, and a final <code>tanh</code> plus clipping bounds the commands. One forward pass means running these layers once to produce the whole open-loop plan, without replanning during that rollout.</p>
+            <p>Inputs include scaled position, velocity and goal, goal-minus-position, and a zero-effort-miss feature: a simple estimate of the miss without thrust using initial velocity and a gravity correction. That feature is not the exact drag-aware free-flight solution; the simulator still uses drag when scoring the plan.</p>
+            <p>Weights are tied to thrust-to-mass, gravity, drag-to-mass, mission time and effort weight. A plan learned for one setting should not be treated as validated for another. JAX, Flax and Optax support training; the interface uses plain HTML, CSS and JavaScript, with no build step or external math library.</p>
+          </div>
+        </details>
       </div>
     </section>
   </main>

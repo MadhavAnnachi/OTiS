@@ -468,26 +468,36 @@ kbd, code { background: transparent; border: 1px solid var(--line); }
 
 
 /* ---------- about ---------- */
-.about { max-width: 1240px; margin: 0 auto; }
-.about p { margin: 0 0 12px; font-size: 17.5px; line-height: 1.55; color: var(--label); }
-.about p:last-child { margin-bottom: 0; }
-.about-lead { padding: 28px 32px; margin-bottom: 34px; }
-.about-lead p { font-size: 20px; }
-.about-h { margin: 0 0 14px; font-size: 16px; }
-.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
-.steps li { border: 1px solid var(--line); padding: 18px 18px 20px; display: flex; flex-direction: column; gap: 12px; }
-.steps .n { width: 34px; height: 34px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: 17px; }
-.steps b { display: block; font-size: 18px; margin-bottom: 6px; }
-.steps p { font-size: 15.6px; color: var(--label-2); margin: 0; }
-.about-note { margin: 16px 0 34px !important; color: var(--label-2) !important; font-family: var(--serif); font-style: italic; font-size: 19px !important; text-align: center; }
-.about-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
-.about-card { padding: 22px 26px; }
-.about-card .group-title { margin: 0 0 12px; font-size: 16px; }
-.about-card p { font-size: 16.5px; }
-.about-card b { color: var(--label); }
-.about .eq { font-family: var(--serif); font-size: 22px; text-align: center; padding: 12px 0; border-top: 1px solid var(--sep); border-bottom: 1px solid var(--sep); }
-@media (max-width: 1100px) { .steps { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 768px) { .steps, .about-grid { grid-template-columns: 1fr; } .about-lead { padding: 20px; } .about-lead p { font-size: 18px; } }
+#view-about .about { max-width: 1240px; margin: 0 auto; overflow-wrap: anywhere; }
+#view-about .about p { margin: 0 0 12px; font-size: 17.5px; line-height: 1.55; color: var(--label); }
+#view-about .about p:last-child { margin-bottom: 0; }
+#view-about .about-lead { padding: 28px 32px; margin-bottom: 28px; }
+#view-about .about-lead p { font-size: 20px; }
+#view-about h2 { margin: 0 0 14px; font-size: 21px; font-weight: 600; color: var(--accent); }
+#view-about h3 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+#view-about .steps { list-style: none; margin: 0 0 28px; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+#view-about .steps li { border: 1px solid var(--line); padding: 20px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+#view-about .steps .n { width: 34px; height: 34px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); font-weight: 700; }
+#view-about .steps p { font-size: 16.5px; }
+#view-about .about-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+#view-about .about-card { padding: 22px 26px; min-width: 0; }
+#view-about .about-technical { margin-top: 28px; border: 1px solid var(--line); min-width: 0; }
+#view-about summary { padding: 18px 24px; cursor: pointer; color: var(--accent); font-size: 20px; font-weight: 600; }
+#view-about summary:hover { background: var(--fill); }
+#view-about summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+#view-about .about-technical-body { padding: 8px 24px 24px; min-width: 0; }
+#view-about .about-technical-body h2:not(:first-child) { margin-top: 26px; }
+#view-about .about .eq { display: flex; flex-wrap: wrap; gap: 8px 16px; max-width: 100%; padding: 14px 0; border-top: 1px solid var(--sep); border-bottom: 1px solid var(--sep); font-family: var(--serif); font-size: 21px; line-height: 1.8; overflow-wrap: anywhere; }
+#view-about .eq > span { max-width: 100%; }
+#view-about .eq sub, #view-about .eq sup { font-size: .7em; }
+@media (max-width: 900px) { #view-about .steps { grid-template-columns: 1fr; } }
+@media (max-width: 768px) {
+  #view-about .about-grid { grid-template-columns: 1fr; }
+  #view-about .about-lead, #view-about .about-card { padding: 20px; }
+  #view-about .about-lead p { font-size: 18px; }
+  #view-about summary { padding: 16px 20px; }
+  #view-about .about-technical-body { padding: 4px 20px 20px; }
+}
 
 /* ---------- planner error note ---------- */
 .note.err { border-color: rgba(230, 91, 85, 0.75); color: var(--label); }
