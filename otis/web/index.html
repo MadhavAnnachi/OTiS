@@ -21,7 +21,7 @@
       <div class="segmented" id="tabs" role="tablist">
         <button role="tab" data-tab="simulator" class="active">Simulator</button>
         <button role="tab" data-tab="training">Training</button>
-        <button role="tab" data-tab="benchmark">Benchmark</button>
+        <button role="tab" data-tab="about">About</button>
         <span class="seg-thumb"></span>
       </div>
       <div class="status" id="status"><span class="dot"></span><span id="status-text">Connecting…</span></div>
@@ -190,39 +190,59 @@
       </div>
     </section>
 
-    <!-- ======================= BENCHMARK ======================= -->
-    <section class="view" id="view-benchmark">
+    <!-- ======================= ABOUT ======================= -->
+    <section class="view" id="view-about">
       <div class="hero">
-        <h1>Measured against the status quo.</h1>
-        <p>Thousands of unseen missions, scored by the same simulator. The convex solver is how flight systems solve this class of problem. The exact optimum is the referee.</p>
+        <h1>How OTiS works.</h1>
       </div>
-      <div id="bench-empty" class="card empty">No benchmark yet. Run <code>python main.py --benchmark</code>, then reload.</div>
-      <div id="bench" hidden>
-        <div class="tiles" id="bench-tiles"></div>
-        <div class="card table-card">
-          <h2>Problem definition</h2>
-          <dl class="defs" id="problem-def"></dl>
+      <div class="about">
+        <div class="card about-lead">
+          <p>OTiS plans a vehicle's whole maneuver in one step. You give it where the vehicle is, how fast it is moving and where it has to be. A neural network answers with a complete plan: 50 thrust commands, one for each moment of the mission.</p>
+          <p>The network is not trained on examples. It learns by flying practice missions through a physics simulator and measuring, exactly, how every command it chose affected the miss and the fuel. There is no dataset to collect and no trial-and-error reinforcement learning.</p>
         </div>
-        <div class="card table-card">
-          <h2>Head-to-head</h2>
-          <div class="table-wrap"><table id="bench-table"></table></div>
-        </div>
-        <div class="card table-card">
-          <h2>Numerical deltas</h2>
-          <div class="table-wrap"><table id="delta-table"></table></div>
-          <div class="delta-legend"><span><i class="good-sw"></i>green = better for the first method</span><span><i class="bad-sw"></i>red = worse for the first method</span><span class="muted">ΔJ % is a ratio of means: (mean J<sub>a</sub> − mean J<sub>b</sub>) / mean J<sub>b</sub>. Lower is better in every column.</span></div>
-        </div>
-        <div class="two">
-          <div class="card table-card">
-            <h2>Cross-validation</h2>
-            <ul class="checks" id="cv-list"></ul>
+
+        <div class="group-title about-h">The training loop</div>
+        <ol class="steps">
+          <li><span class="n">1</span><div><b>Describe the vehicle</b><p>Mass, thrust, drag, gravity, mission time and workspace, or a preset. This defines the physics; it is the only input OTiS needs.</p></div></li>
+          <li><span class="n">2</span><div><b>Invent missions</b><p>Each step draws 1,024 random starts, velocities and goals inside the workspace. The simulator is the data source.</p></div></li>
+          <li><span class="n">3</span><div><b>Plan and fly</b><p>The network outputs a thrust plan for each mission, and the plans are flown through a differentiable RK4 simulator.</p></div></li>
+          <li><span class="n">4</span><div><b>Score</b><p>Every flight gets one number: J = miss² + λ·control effort. Small λ favors accuracy; large λ saves fuel.</p></div></li>
+          <li><span class="n">5</span><div><b>Learn exactly</b><p>Because the simulator is differentiable, the exact gradient of J flows back through every integration step into the network's weights.</p></div></li>
+        </ol>
+        <p class="about-note">After training, a new mission costs a single forward pass: about a millisecond for one plan, and thousands of plans at once on a GPU.</p>
+
+        <div class="about-grid">
+          <div class="card about-card">
+            <div class="group-title">The physics</div>
+            <p>Thrust-driven vehicles (Rocket, UAV, USV) are a point mass in a plane, state [x, y, v<sub>x</sub>, v<sub>y</sub>]:</p>
+            <p class="eq">v̇ = (F<sub>max</sub>/m)·u − (c/m)·v − [0, g]</p>
+            <p>The throttle u is limited to [−1, 1] on each axis. A mission is 50 commands spread evenly over the mission time, each held for one step and integrated with fourth-order Runge–Kutta. Units are SI.</p>
           </div>
-          <div class="card table-card">
-            <h2>Compute per plan</h2>
-            <div class="bars" id="time-bars"></div>
+          <div class="card about-card">
+            <div class="group-title">The network</div>
+            <p>A residual multilayer perceptron: pre-LayerNorm blocks with GELU and skip connections, from 0.6 M to 51 M parameters.</p>
+            <p>It is given physics-informed inputs: positions and velocities scaled to the workspace, and the zero-effort miss, which is where the vehicle would end up if it never fired. Its output passes through tanh, so every command stays inside the thrust limit.</p>
+          </div>
+          <div class="card about-card">
+            <div class="group-title">What it is compared with</div>
+            <p><b>Convex optimization</b> (CVXPY + Clarabel): the way flight systems such as G-FOLD solve this class of problem, re-solved for every mission.</p>
+            <p><b>Apollo E-guidance</b>: the classic closed-form steering law, which steers for an exact rendezvous and spends more control effort to get it.</p>
+            <p><b>Exact optimum</b>: because this plant is linear, the true best plan can be computed, so the network's distance from optimal is measured, not estimated.</p>
+          </div>
+          <div class="card about-card">
+            <div class="group-title">One network per plant</div>
+            <p>A trained network is valid only for the physics and objective it learned: thrust-to-mass, gravity, drag-to-mass, mission time and λ. OTiS fingerprints each network with those values and shows it only when they match. Change a parameter and the Simulator offers to train a new one.</p>
+            <p>The stiffness κ in the Simulator predicts how hard that training will be. High thrust-to-weight with a small λ learns slowest.</p>
+          </div>
+          <div class="card about-card">
+            <div class="group-title">Honest limits</div>
+            <p>Training covers linear thrust plants today. Missing the target is penalized rather than forbidden, so the network trades a small miss for less effort, while E-guidance hits exactly. A network carries no hard guarantee; a solver does. The network's case is a fixed, tiny cost per plan that stays fixed as problems grow harder.</p>
+          </div>
+          <div class="card about-card">
+            <div class="group-title">Built with</div>
+            <p>JAX, Flax and Optax for the simulator, network and training (on an RTX 5070 Ti through WSL2); CVXPY with Clarabel and OSQP for the solvers; SciPy for an independent integrator check. The interface is plain HTML, CSS and JavaScript with no build step.</p>
           </div>
         </div>
-        <p class="footnote" id="bench-foot"></p>
       </div>
     </section>
   </main>

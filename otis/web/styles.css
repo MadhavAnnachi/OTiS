@@ -450,7 +450,7 @@ kbd, code { background: transparent; border: 1px solid var(--line); }
    (24px offsets the h1's tighter line-height vs. the intro's 1.45) */
 #view-simulator > .hero { padding-top: 49.6px; padding-bottom: 20px; }
 #view-training > .hero { padding-top: 53.6px; }
-#view-benchmark > .hero { padding-top: 53.6px; }
+#view-about > .hero { padding-top: 53.6px; }
 
 
 /* ---------- benchmark: problem definition + delta legend ---------- */
@@ -465,3 +465,26 @@ kbd, code { background: transparent; border: 1px solid var(--line); }
 .delta-legend .good-sw { background: var(--green); }
 .delta-legend .bad-sw { background: var(--red); }
 .delta-legend .muted { color: var(--label-3); }
+
+
+/* ---------- about ---------- */
+.about { max-width: 1240px; margin: 0 auto; }
+.about p { margin: 0 0 12px; font-size: 17.5px; line-height: 1.55; color: var(--label); }
+.about p:last-child { margin-bottom: 0; }
+.about-lead { padding: 28px 32px; margin-bottom: 34px; }
+.about-lead p { font-size: 20px; }
+.about-h { margin: 0 0 14px; font-size: 16px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+.steps li { border: 1px solid var(--line); padding: 18px 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+.steps .n { width: 34px; height: 34px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: 17px; }
+.steps b { display: block; font-size: 18px; margin-bottom: 6px; }
+.steps p { font-size: 15.6px; color: var(--label-2); margin: 0; }
+.about-note { margin: 16px 0 34px !important; color: var(--label-2) !important; font-family: var(--serif); font-style: italic; font-size: 19px !important; text-align: center; }
+.about-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+.about-card { padding: 22px 26px; }
+.about-card .group-title { margin: 0 0 12px; font-size: 16px; }
+.about-card p { font-size: 16.5px; }
+.about-card b { color: var(--label); }
+.about .eq { font-family: var(--serif); font-size: 22px; text-align: center; padding: 12px 0; border-top: 1px solid var(--sep); border-bottom: 1px solid var(--sep); }
+@media (max-width: 1100px) { .steps { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 768px) { .steps, .about-grid { grid-template-columns: 1fr; } .about-lead { padding: 20px; } .about-lead p { font-size: 18px; } }

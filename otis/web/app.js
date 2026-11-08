@@ -36,7 +36,7 @@
   const COLORS = () => ({
     neural: css("--blue"), convex: css("--green"), e_guidance: css("--orange"), pursuit: css("--teal"),
     start: css("--purple"), goal: css("--red"), vel: css("--indigo"), thrust: css("--pink"),
-    grid: css("--grid"), gridStrong: css("--grid-strong"), bg: css("--canvas-bg"),
+    grid: css("--grid"), gridStrong: css("--grid-strong"), gridLine: "rgba(255,255,255,0.075)", gridAxis: "rgba(255,255,255,0.16)", bg: css("--canvas-bg"),
     label: css("--label"), label2: css("--label-2"), label3: css("--label-3"), elev: css("--bg-elev"),
   });
   let C = COLORS();
@@ -81,7 +81,8 @@
   } catch { /* storage unavailable: start from presets */ }
   const persist = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify({ params: S.params, scen: S.scen, vehicle: S.vehicle })); } catch { /* ignore */ } };
   const preset = (v = S.vehicle) => S.catalog?.vehicles?.[v];
-  const schema = (v = S.vehicle) => S.catalog?.schema?.[preset(v)?.kind] || [];
+  // Fields marked "hidden" (gravity) keep their preset value: not shown, not editable, not imported.
+  const schema = (v = S.vehicle) => (S.catalog?.schema?.[preset(v)?.kind] || []).filter((f) => !f.hidden);
   function currentParams(v = S.vehicle) {
     const base = preset(v)?.params || {};
     return { ...base, ...(S.params[v] || {}) };
@@ -122,10 +123,10 @@
     return place;
   }
 
-  // The vehicle bar lives in the active view's title row (left column); hidden on Benchmark.
+  // The vehicle bar lives in the active view's title row (left column); hidden on About.
   function placeVehicleBar() {
     const bar = $("#nav-sub"), hero = $(`#view-${S.tab} > .hero`);
-    bar.classList.toggle("hidden", S.tab === "benchmark");
+    bar.classList.toggle("hidden", S.tab === "about");
     if (hero && bar.parentNode !== hero) hero.prepend(bar);
   }
   placeVehicleBar();
@@ -133,7 +134,6 @@
     S.tab = b.dataset.tab;
     $$(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + S.tab));
     placeVehicleBar();
-    if (S.tab === "benchmark") loadBenchmark();
     if (S.tab === "training") loadEvolution();
     requestAnimationFrame(() => { resizeAll(); drawAll(); });
   });
@@ -207,6 +207,23 @@
     ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, cv.width, cv.height);
     const [ax, ay] = V.toPx(-V.L, V.L), [bx, by] = V.toPx(V.L, -V.L);
+    // Solid gridlines at a "nice" spacing (1, 2 or 5 x 10^k), about 20 cells across the workspace.
+    const raw = (2 * V.L) / 20, mag = 10 ** Math.floor(Math.log10(raw));
+    const step = [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= raw * 0.999);
+    const [wx0, wy1] = V.toWorld(0, 0), [wx1, wy0] = V.toWorld(cv.width, cv.height);
+    ctx.save();
+    ctx.lineWidth = 1 * dpr;
+    for (let x = Math.ceil(wx0 / step) * step; x <= wx1; x += step) {
+      const px = Math.round(V.toPx(x, 0)[0]) + 0.5;
+      ctx.strokeStyle = Math.abs(x) < step * 1e-6 ? C.gridAxis : C.gridLine;
+      ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, cv.height); ctx.stroke();
+    }
+    for (let y = Math.ceil(wy0 / step) * step; y <= wy1; y += step) {
+      const py = Math.round(V.toPx(0, y)[1]) + 0.5;
+      ctx.strokeStyle = Math.abs(y) < step * 1e-6 ? C.gridAxis : C.gridLine;
+      ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(cv.width, py); ctx.stroke();
+    }
+    ctx.restore();
     ctx.save();
     ctx.strokeStyle = C.gridStrong;
     ctx.lineWidth = 1 * dpr;
@@ -277,6 +294,24 @@
     return [lerp(path[i][0], path[j][0], f), lerp(path[i][1], path[j][1], f), lerp(path[i][2], path[j][2], f), lerp(path[i][3], path[j][3], f)];
   }
 
+  // Screen-space heading from the path itself: look ahead (or back at the end)
+  // until the craft has moved a visible distance, so a near-stop never jitters.
+  function headingAt(V, path, t) {
+    const p = samplePath(path, t), [x0, y0] = V.toPx(p[0], p[1]);
+    const end = path.length - 1;
+    for (let dt = 0.25; dt <= end; dt += 0.25) {
+      const q = samplePath(path, Math.min(end, t + dt)), [x1, y1] = V.toPx(q[0], q[1]);
+      if (Math.hypot(x1 - x0, y1 - y0) > 2) return Math.atan2(y1 - y0, x1 - x0);
+      if (t + dt >= end) break;
+    }
+    for (let dt = 0.25; dt <= end; dt += 0.25) {
+      const q = samplePath(path, Math.max(0, t - dt)), [x1, y1] = V.toPx(q[0], q[1]);
+      if (Math.hypot(x0 - x1, y0 - y1) > 2) return Math.atan2(y0 - y1, x0 - x1);
+      if (t - dt <= 0) break;
+    }
+    return Math.atan2(-p[3], p[2]);
+  }
+
   function drawCarBody(ctx, dpr, color) {
     ctx.fillStyle = C.elev; ctx.strokeStyle = color; ctx.lineWidth = 2 * dpr;
     ctx.beginPath();
@@ -315,13 +350,15 @@
     const [px, py] = V.toPx(s[0], s[1]);
     const thrustMag = Math.hypot(u[0], u[1]);
     const kind = currentVehicle().draw || S.vehicle || "rocket";
-    const velAng = Math.atan2(-s[3], s[2]);
-    const ang = kind === "rocket" && thrustMag > 0.02 ? Math.atan2(-u[1], u[0]) : velAng;
+    // Every vehicle points along its direction of travel (path tangent), so the
+    // rocket no longer flips when the plan reverses thrust to brake.
+    const ang = headingAt(V, path, t);
     ctx.save();
     ctx.translate(px, py);
-    ctx.rotate(ang);
-    // exhaust plume opposite to thrust
+    // exhaust plume opposite to the actual thrust (a braking burn shows at the nose)
     if (kind === "rocket" && thrustMag > 0.02 && t < path.length - 1) {
+      ctx.save();
+      ctx.rotate(Math.atan2(-u[1], u[0]));
       const fl = (10 + 22 * thrustMag) * dpr * (0.85 + 0.15 * Math.sin(performance.now() / 45));
       const g = ctx.createLinearGradient(-6 * dpr, 0, -6 * dpr - fl, 0);
       g.addColorStop(0, css("--yellow"));
@@ -333,7 +370,9 @@
       ctx.quadraticCurveTo(-6 * dpr - fl * 0.6, 0, -6 * dpr - fl, 0);
       ctx.quadraticCurveTo(-6 * dpr - fl * 0.6, 0, -6 * dpr, 4 * dpr);
       ctx.fill();
+      ctx.restore();
     }
+    ctx.rotate(ang);
     ctx.shadowColor = "rgba(0,0,0,.25)";
     ctx.shadowBlur = 8 * dpr;
     ctx.fillStyle = C.elev;
@@ -896,75 +935,6 @@
     document.body.appendChild(a); a.click(); a.remove();
   });
 
-  // ------------------------------------------------------------------ benchmark view
-  async function loadBenchmark() {
-    const r = await api("/api/benchmark");
-    if (r.missing) { $("#bench-empty").hidden = false; $("#bench").hidden = true; return; }
-    $("#bench-empty").hidden = true; $("#bench").hidden = false;
-    const M = r.methods, D = r.deltas, T = r.timing_ms_per_problem, G = r.cross_validation.generalization;
-    // 3 significant figures, never exponent notation for the small gaps we show
-    const sig3 = (v) => (v == null || !isFinite(v) ? "—" : Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : (+v.toPrecision(3)).toString());
-    const pctS = (v, d = 2) => `${v >= 0 ? "+" : ""}${v.toFixed(d)}%`;
-    const P = r.problem || {};
-    const nTest = P.test_missions || G.folds * G.problems_per_fold;
-    const batchN = G.problems_per_fold;
-    const egD = D.neural_minus_e_guidance;
-    const dvPct = egD.delta_v.pct;  // (Δv_net − Δv_E) / Δv_E, same number as the deltas table
-    $("#bench-tiles").innerHTML = [
-      ["blue", "Mean per-mission gap", `${sig3(G.gap_pct_mean)}%`, `95% CI ${sig3(G.gap_pct_bootstrap_95ci[0])}–${sig3(G.gap_pct_bootstrap_95ci[1])}% vs exact optimum`],
-      ["green", `Batched throughput vs convex · batch ${batchN.toLocaleString()}`, `${r.speedup_neural_vs_convex.batched.toFixed(0)}×`, `single plan: ${T.neural_single_best_latency.toFixed(2)} ms vs ${T.convex_clarabel_median.toFixed(2)} ms solver`],
-      ["indigo", "p99 optimality gap", G.gap_pct_p99 == null ? "—" : `${sig3(G.gap_pct_p99)}%`, `99% of ${nTest.toLocaleString()} test missions are within this of the exact optimum`],
-      ["orange", "Control effort vs Apollo E-guidance", pctS(egD.fuel.pct), `for ${M.neural.miss.mean.toFixed(4)} m terminal miss · Apollo enforces exact rendezvous and uses ${Math.abs(dvPct).toFixed(2)}% ${dvPct >= 0 ? "less" : "more"} Δv`],
-    ].map(([c, l, v, s]) => `<div class="tile ${c}"><div class="t-lab">${l}</div><div class="t-val">${v}</div><div class="t-sub">${s}</div></div>`).join("");
-
-    const dt = P.dt, N = P.n_steps, lam = P.lambda_fuel;
-    const defs = [
-      ["Dynamics", `Planar point mass (double integrator), state [x, y, v<sub>x</sub>, v<sub>y</sub>]: v̇ = (F/m)·u with F/m = 1 m/s², no gravity or drag. Thrust is held constant over each step and integrated with RK4.`],
-      ["Time step", `dt = ${dt} s`],
-      ["Horizon", `N = ${N} steps (T = ${(P.horizon ?? N * dt).toFixed(2)} s)`],
-      ["Objective", `J = ‖p<sub>N</sub> − goal‖² + λ·Σ<sub>k</sub>‖u<sub>k</sub>‖², λ = ${lam}; |u<sub>x</sub>|, |u<sub>y</sub>| ≤ ${P.max_thrust ?? 1} per step`],
-      ["Terminal condition", "Soft penalty: the terminal position error is part of J and terminal velocity is free, so OTiS, convex and the KKT optimum trade a small miss for less control effort. E-guidance instead enforces the terminal position exactly (zero-miss rendezvous by construction)."],
-      ["Test missions", `${nTest.toLocaleString()} (${G.folds} disjoint folds × ${G.problems_per_fold.toLocaleString()}), never seen in training`],
-      ["Sampling", `Start and goal positions uniform in [−${P.position_limit}, ${P.position_limit}]² m; initial velocity uniform in [−${P.velocity_limit}, ${P.velocity_limit}]² m/s; drawn from random-number streams separate from training's`],
-    ];
-    $("#problem-def").innerHTML = defs.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("");
-
-    const names = { neural: "OTiS", convex: "Convex optimization (Clarabel)", optimal: "Exact optimum (KKT)", e_guidance: "Apollo E-guidance" };
-    $("#bench-table").innerHTML = `<thead><tr><th>Method</th><th>Objective J</th><th>Miss (m)</th><th>p99 miss (m)</th><th>Control effort Σu²</th><th>Δv (m/s)</th></tr></thead><tbody>` +
-      Object.keys(names).map((k) => `<tr><td>${names[k]}</td><td>${M[k].loss.mean.toFixed(5)}</td><td>${M[k].miss.mean.toFixed(4)}</td><td>${M[k].miss.p99 == null ? "—" : M[k].miss.p99.toFixed(4)}</td><td>${M[k].fuel.mean.toFixed(3)}</td><td>${M[k].delta_v.mean.toFixed(3)}</td></tr>`).join("") + "</tbody>";
-
-    const lab = { neural_minus_convex: "Network − convex optimization", neural_minus_optimal: "Network − exact optimum", neural_minus_e_guidance: "Network − E-guidance", e_guidance_minus_optimal: "E-guidance − exact optimum" };
-    const cell = (v, d, pct) => `<td class="${v < 0 ? "good" : v > 0 ? "bad" : ""}">${v >= 0 ? "+" : ""}${pct ? v.toFixed(3) + "%" : Math.abs(v) < 1e-2 ? v.toExponential(2) : v.toFixed(d)}</td>`;
-    $("#delta-table").innerHTML = `<thead><tr><th>Comparison</th><th>ΔJ</th><th>ΔJ % (of mean)</th><th>Δ miss (m)</th><th>Δ control effort</th><th>Δ control effort %</th><th>Δ Δv %</th></tr></thead><tbody>` +
-      Object.entries(lab).filter(([k]) => D[k]).map(([k, l]) => { const d = D[k]; return `<tr><td>${l}</td>${cell(d.loss.abs, 5)}${cell(d.loss.pct, 2, 1)}${cell(d.miss.abs, 4)}${cell(d.fuel.abs, 3)}${cell(d.fuel.pct, 2, 1)}${cell(d.delta_v.pct, 2, 1)}</tr>`; }).join("") + "</tbody>";
-
-    const CV = r.cross_validation;
-    const KC = CV.kkt_consistency;
-    const checks = [
-      ...(KC ? [["KKT referee = training problem", KC.consistent ? `same dt ${KC.kkt_dt} s and N ${KC.kkt_n_steps}; KKT terminal map vs RK4 ${KC.max_abs_terminal_pos_kkt_map_vs_rk4.toExponential(1)} m on ${KC.cases} plans` : "MISMATCH: see BENCHMARK.md"]] : []),
-      ["RK4 vs closed-form physics", `max error ${CV.integrator.max_abs_rk4_vs_closed_form.toExponential(1)} over ${CV.integrator.cases} random plans`],
-      ["RK4 vs SciPy DOP853", `max error ${CV.integrator.max_abs_rk4_vs_scipy_dop853.toExponential(1)} (independent 8th-order integrator)`],
-      ["Autodiff vs finite differences", `max error ${CV.gradient.max_abs_autodiff_vs_finite_difference.toExponential(1)} over ${CV.gradient.checks} gradient entries`],
-      ["Clarabel vs exact optimum", `max ΔJ ${CV.solvers.clarabel.max_abs_loss_diff_vs_exact.toExponential(1)} on ${CV.solvers.cases} problems`],
-      ["OSQP vs exact optimum", `max ΔJ ${CV.solvers.osqp.max_abs_loss_diff_vs_exact.toExponential(1)} (second, independent solver)`],
-      [`${G.folds}-fold generalization`, `gap ${G.gap_pct_mean_per_fold.map((v) => v.toFixed(2) + "%").join(" · ")} (±${G.gap_pct_std_across_folds.toFixed(3)}%)`],
-      ["Out-of-distribution stress", `2× velocity range: gap ${r.stress_out_of_distribution.neural_gap_pct_mean.toFixed(2)}%`],
-    ];
-    $("#cv-list").innerHTML = checks.map(([t, v]) => `<li><span class="ok">✓</span><div><div class="c-t">${t}</div><div class="c-v">${v}</div></div></li>`).join("");
-
-    const bars = [
-      ["Network · single plan (GPU)", T.neural_single_gpu_latency, C.neural],
-      ["Network · single plan (CPU)", T.neural_single_cpu_latency, C.neural],
-      ["Network · batched", T.neural_batched_gpu, C.neural],
-      ["Convex optimization (Clarabel)", T.convex_clarabel_median, C.convex],
-      ["E-guidance · batched", T.e_guidance_batched, C.e_guidance],
-    ];
-    const maxLog = Math.log10(Math.max(...bars.map((b) => b[1]))) + 0.3, minLog = Math.log10(Math.min(...bars.map((b) => b[1]))) - 0.3;
-    $("#time-bars").innerHTML = bars.map(([l, v, c]) => `<div class="bar-row"><div class="bar-lab"><span>${l}</span><span class="mono">${v < 0.01 ? v.toExponential(1) : v.toFixed(3)} ms</span></div><div class="bar-track"><div class="bar-fill" style="width:${(100 * (Math.log10(v) - minLog)) / (maxLog - minLog)}%;background:${c}"></div></div></div>`).join("") +
-      `<small>Log scale. Measured on ${r.environment.device}.</small>`;
-    $("#bench-foot").textContent = `${r.model.size} model · ${r.model.n_params.toLocaleString()} parameters · ${G.folds} × ${G.problems_per_fold} unseen missions · generated ${r.generated}. Full tables in BENCHMARK.md; sources in SOURCES.md.`;
-  }
-
   // ------------------------------------------------------------------ main loop
   function resizeAll() { [simCv, trCv, thCv, lossCv].forEach(fitCanvas); }
   function drawAll() {
@@ -1002,6 +972,12 @@
     S.catalog = cat;
     if (window.OTiSPlant) window.OTiSPlant.setCatalog(cat);
     if (!cat.vehicles[S.vehicle]) S.vehicle = "rocket";
+    // Drop any saved edits to hidden fields so every vehicle uses its preset gravity.
+    Object.entries(cat.vehicles).forEach(([id, v]) => {
+      const hidden = (cat.schema[v.kind] || []).filter((f) => f.hidden).map((f) => f.key);
+      if (S.params[id]) hidden.forEach((k) => delete S.params[id][k]);
+    });
+    persist();
     $$("#vehicle-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.vehicle === S.vehicle));
     window.dispatchEvent(new Event("resize"));
     loadScenario();
@@ -1152,7 +1128,7 @@
     const training = ["training", "compiling", "paused"].includes(S.server?.phase);
     const tp = training && S.server?.plant ? S.server.plant : { vehicle: S.vehicle, name: currentVehicle().name, params: currentParams() };
     const kind = S.catalog.vehicles[tp.vehicle]?.kind;
-    const fields = S.catalog.schema[kind] || [];
+    const fields = (S.catalog.schema[kind] || []).filter((f) => !f.hidden);
     const chips = fields.map((f) => `<span class="chip"><b>${esc(f.label.replace(/ per axis| half-width| range/g, ""))}</b>${fmtIn(tp.params[f.key])}${f.unit ? " " + esc(f.unit) : ""}</span>`).join("");
     let note = "";
     if (kind !== "point_mass") note = `<div class="note">The ${esc(tp.name)} is planned classically; network training needs a thrust-driven plant (Rocket, UAV or USV).</div>`;
@@ -1190,7 +1166,7 @@
     try {
       const doc = JSON.parse(await file.text());
       if (!doc || !S.catalog.vehicles[doc.vehicle]) throw new Error("unknown vehicle");
-      const keys = new Set(S.catalog.schema[S.catalog.vehicles[doc.vehicle].kind].map((f) => f.key));
+      const keys = new Set(S.catalog.schema[S.catalog.vehicles[doc.vehicle].kind].filter((f) => !f.hidden).map((f) => f.key));
       const params = {};
       Object.entries(doc.params || {}).forEach(([k, v]) => { if (keys.has(k) && isFinite(+v)) params[k] = +v; });
       S.params[doc.vehicle] = params;

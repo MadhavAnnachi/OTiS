@@ -404,6 +404,11 @@ def run_benchmark(checkpoint, out_json=None, out_md=None, n=config.BENCHMARK_CAS
     out_md = Path(out_md or PACKAGE_ROOT.parent / "BENCHMARK.md")
     out_md.write_text(render_markdown(results), encoding="utf-8")
     print(f"Wrote {out_json}\nWrote {out_md}", flush=True)
+    try:
+        from .export_benchmark import export
+    except ImportError:
+        from export_benchmark import export
+    export(out_json)
     return results
 
 

@@ -69,7 +69,9 @@ wsl -d Ubuntu -- bash -lc "cd /mnt/c/Users/annac/Desktop/Building/OTiS/otis && M
   - **Reset** restores the preset; **Export** / **Import** save and load a mission as JSON. Edits are remembered per vehicle in your browser.
   - Use the play bar to fly the mission; press `R` for a random mission and `Space` to play.
 - **Training.** Shows the plant being trained (taken from the Simulator's parameters). Pick a model size (0.6 M to 51 M parameters) and the number of steps, then press Train. Watch the plan go from a large miss at step 0 to a clean burn, with the loss curve on a log scale. Pause, stop, or replay the whole evolution with the scrubber. The **Training log** table below fills in live with one row every 100, 250, 500 or 1,000 steps (time, train and validation loss, change in validation loss, mean miss, fuel, gradient norm, learning rate) and exports to CSV. A run on the Rocket preset saves to `checkpoints/ui_last_run.pkl` and never overwrites the benchmark checkpoint; runs on other parameters save to `checkpoints/models/<vehicle>-<id>.pkl` and reload automatically next time.
-- **Benchmark.** A dashboard of `outputs/benchmark_results.json`.
+- **About.** How OTiS works: the training loop, the physics, the network, what it is compared with, and its limits.
+
+**Benchmark for slides.** The benchmark is not on the website. Every `python main.py --benchmark` run also writes `exports/benchmark.html`, a standalone page (no JavaScript, numbers as plain text) to screenshot or edit for slides. `python main.py --export-benchmark` rebuilds it from the last run without re-benchmarking; re-exporting overwrites the file, so copy it before editing.
 
 The interface uses a charcoal background (`#333333`), a gold accent (`#f0bc5a`) and square boxes with thin outlines and no shadows, inspired by Wolfram|Alpha, with Newsreader titles and Source Sans 3 for UI type. It is plain HTML, CSS and JS in `otis/web/`, served by Python's standard library, so there is no build step. The same files also live in `docs/` for a static GitHub Pages demo (classical planners only; the neural rocket planner needs the local Python server).
 
@@ -105,6 +107,7 @@ All presets, limits and help text live in one file, [`otis/web/vehicles.json`](o
 | `vehicles.py` | Parameters → plant spec, derived readouts, classical planners and scoring for every vehicle |
 | `web/vehicles.json` | Presets, editable parameters, limits and help text (shared by Python and the UI) |
 | `evaluate.py` | Benchmark, deltas, k-fold generalization, cross-validation, writes BENCHMARK.md |
+| `export_benchmark.py` | Writes `exports/benchmark.html`, the standalone editable benchmark page for slides |
 | `server.py` + `web/` | Interactive UI; keeps one trained network per plant and trains new ones on request |
 | `main.py` | CLI entry point |
 | `visualize.py` | Legacy Matplotlib window (`--legacy-window`) and the headless report figure |
@@ -121,6 +124,6 @@ These train and benchmark the Rocket preset from the command line. For other par
 --lambda-fuel 0.01               fuel weight
 --velocity-limit 0.5             initial-velocity range (0 = start at rest)
 --position-limit 2               half-width of the start/goal square
---no-viz | --benchmark | --check | --write-benchmark | --legacy-window
+--no-viz | --benchmark | --export-benchmark | --check | --write-benchmark | --legacy-window
 --port 8765  --autotrain
 ```

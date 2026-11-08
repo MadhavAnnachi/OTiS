@@ -56,6 +56,8 @@ def parse_args(argv=None):
                         help="Network size preset (default large, ~13M parameters).")
     parser.add_argument("--benchmark", action="store_true",
                         help="Compare the checkpoint with convex optimization and E-guidance; write BENCHMARK.md.")
+    parser.add_argument("--export-benchmark", action="store_true",
+                        help="Write exports/benchmark.html (standalone, editable) from the last benchmark run, then exit.")
     parser.add_argument("--port", type=int, default=8765, help="Web UI port.")
     parser.add_argument("--host", default="127.0.0.1", help="Web UI bind address.")
     parser.add_argument("--autotrain", action="store_true", help="Start training as soon as the UI server starts.")
@@ -671,6 +673,13 @@ def main(argv=None) -> None:
         if not checkpoint.exists():
             raise SystemExit(f"No checkpoint at {checkpoint}. Train first: python main.py --no-viz")
         run_benchmark(checkpoint)
+        return
+    if args.export_benchmark:
+        try:
+            from .export_benchmark import export
+        except ImportError:
+            from export_benchmark import export
+        export()
         return
     if args.write_benchmark:
         try:
