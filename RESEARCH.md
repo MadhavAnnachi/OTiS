@@ -1,0 +1,13 @@
+# Talking points for judges
+
+The full bibliography and the training-data explanation are in [SOURCES.md](SOURCES.md). The measured results are in [BENCHMARK.md](BENCHMARK.md).
+
+- **What OTiS is.** A training method (gradients through a differentiable simulator) packaged as a tool: you enter a vehicle's physics and a mission objective, and it plans with the status-quo solver immediately and trains a network for that plant on request. The input is physics plus an objective, not data.
+- **No dataset, no labels, no RL.** Every training step flies 1,024 random missions through a differentiable RK4 simulator. The exact gradient of miss plus fuel flows back through every integration stage into the network's weights.
+- **Compared against the status quo.** Convex optimization (the G-FOLD / Falcon 9 landing approach, here CVXPY + Clarabel) and Apollo-heritage E-guidance solve the same problems. All methods are scored by the same simulator and the same objective.
+- **A provable referee.** Because this plant is linear, the true optimum can be computed exactly with KKT conditions and bisection. That lets us state the network's optimality gap as a measurement rather than an estimate. Two independent solvers (Clarabel and OSQP) agree with it to about 1e-8.
+- **Cross-validated physics.** Our RK4 matches the closed-form solution and SciPy's independent 8th-order DOP853 integrator to about 1e-6 (float32). Autodiff gradients match finite differences.
+- **Be honest about speed.** For this small linear problem a single convex solve already takes about 1 ms, the same as one network forward pass. The network wins on batch throughput (about 70× in the current BENCHMARK.md; up to ~120× with the GPU otherwise idle) and on a cost that stays fixed as constraints or nonlinear dynamics are added, which is where per-problem solvers slow down.
+- **It works beyond the demo plant, with a measured caveat.** On the UAV preset (1.5 kg, 30 N, Earth gravity, drag) the same pipeline trains from scratch to a 4.2% mean gap in 3,000 steps (about 36 s), and a heavier 2 kg rocket trained from the UI plans within 0.01% of the optimum on a sample mission. Stiff plants (high thrust-to-weight, small fuel weight) learn far more slowly: the UAV at λ = 0.01 was still 495% from optimal after 3,000 steps. The UI shows this as the stiffness κ and warns before you train.
+- **Scope.** Training currently covers linear thrust plants (any mass, thrust, gravity, drag, mission time). The published benchmark covers the Rocket preset.
+- **Fuel model.** The fuel term is Σu², a smooth proxy for effort. True fuel-optimal control (∫|u| dt) is bang-bang and is described by primer-vector theory (Lawden, SOURCES.md #17). Δv = Σ‖u‖·dt is also reported.

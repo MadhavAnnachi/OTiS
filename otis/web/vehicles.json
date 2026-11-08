@@ -1,0 +1,49 @@
+{
+  "_comment": "Single source of truth for vehicle presets and editable parameters. Read by otis/vehicles.py and by web/plant.js + app.js. Units are SI.",
+  "schema": {
+    "point_mass": [
+      {"key": "mass", "label": "Mass", "unit": "kg", "min": 0.01, "max": 100000, "step": 0.1, "group": "Vehicle", "help": "Total vehicle mass."},
+      {"key": "max_thrust", "label": "Max thrust per axis", "unit": "N", "min": 0.001, "max": 10000000, "step": 0.5, "group": "Vehicle", "help": "Thrust at full throttle along x and along y. Throttle is limited to [-1, 1] per axis."},
+      {"key": "drag", "label": "Linear drag", "unit": "N·s/m", "min": 0, "max": 100000, "step": 0.05, "group": "Vehicle", "help": "Drag force = coefficient × velocity, opposing motion. 0 = vacuum."},
+      {"key": "gravity", "label": "Gravity", "unit": "m/s²", "min": 0, "max": 30, "step": 0.01, "group": "Environment", "help": "Acts in −y. Earth 9.81, Moon 1.62, Mars 3.71, space 0."},
+      {"key": "horizon", "label": "Mission time", "unit": "s", "min": 0.5, "max": 600, "step": 0.5, "group": "Mission", "help": "Every plan is 50 thrust commands spread evenly over this time."},
+      {"key": "workspace", "label": "Workspace half-width", "unit": "m", "min": 0.1, "max": 100000, "step": 0.5, "group": "Mission", "help": "Starts and goals lie in a square of ± this size. Training samples missions from it."},
+      {"key": "start_speed", "label": "Start-speed range", "unit": "m/s", "min": 0, "max": 10000, "step": 0.1, "group": "Mission", "help": "Initial velocity per axis is drawn from ± this value for training and Random."},
+      {"key": "lambda_fuel", "label": "Fuel weight λ", "unit": "", "min": 0.0001, "max": 10, "step": 0.001, "group": "Mission", "help": "Objective J = miss² + λ·Σu². Larger λ saves fuel at the cost of accuracy, and makes the problem better conditioned (lower stiffness κ), so the network trains faster."}
+    ],
+    "bicycle": [
+      {"key": "wheelbase", "label": "Wheelbase", "unit": "m", "min": 0.05, "max": 20, "step": 0.1, "group": "Vehicle", "help": "Distance between the axles."},
+      {"key": "max_accel", "label": "Max acceleration", "unit": "m/s²", "min": 0.01, "max": 50, "step": 0.1, "group": "Vehicle", "help": "Longitudinal acceleration at full throttle (also full braking)."},
+      {"key": "max_steer", "label": "Max steering angle", "unit": "°", "min": 1, "max": 70, "step": 1, "group": "Vehicle", "help": "Front-wheel steering limit."},
+      {"key": "speed_limit", "label": "Speed limit", "unit": "m/s", "min": 0.1, "max": 100, "step": 0.5, "group": "Vehicle", "help": "Cruise-speed cap used by the pursuit planner."},
+      {"key": "drag", "label": "Rolling drag", "unit": "1/s", "min": 0, "max": 10, "step": 0.01, "group": "Vehicle", "help": "Speed decay rate when coasting."},
+      {"key": "horizon", "label": "Mission time", "unit": "s", "min": 0.5, "max": 600, "step": 0.5, "group": "Mission", "help": "Every plan is 50 commands spread evenly over this time."},
+      {"key": "workspace", "label": "Workspace half-width", "unit": "m", "min": 0.1, "max": 100000, "step": 0.5, "group": "Mission", "help": "Starts and goals lie in a square of ± this size."},
+      {"key": "start_speed", "label": "Start-speed range", "unit": "m/s", "min": 0, "max": 100, "step": 0.1, "group": "Mission", "help": "Initial speed range used by Random."},
+      {"key": "lambda_fuel", "label": "Fuel weight λ", "unit": "", "min": 0.0001, "max": 10, "step": 0.001, "group": "Mission", "help": "Objective J = miss² + λ·Σu²."}
+    ]
+  },
+  "vehicles": {
+    "rocket": {
+      "id": "rocket", "name": "Rocket", "kind": "point_mass", "draw": "rocket",
+      "blurb": "A free-flying thruster craft. The preset is the unit plant the published network was trained on (1 kg, 1 N, vacuum, 4 s).",
+      "methods": ["neural", "convex", "e_guidance"],
+      "params": {"mass": 1, "max_thrust": 1, "drag": 0, "gravity": 0, "horizon": 4, "workspace": 2, "start_speed": 0.5, "lambda_fuel": 0.01},
+      "locked": []
+    },
+    "uav": {
+      "id": "uav", "name": "UAV", "kind": "point_mass", "draw": "uav",
+      "blurb": "A multirotor flying in a vertical plane: Earth gravity, light drag, thrust-to-weight about 2.",
+      "methods": ["neural", "convex", "e_guidance"],
+      "params": {"mass": 1.5, "max_thrust": 30, "drag": 0.3, "gravity": 9.81, "horizon": 4, "workspace": 10, "start_speed": 2, "lambda_fuel": 0.1},
+      "locked": []
+    },
+    "usv": {
+      "id": "usv", "name": "USV", "kind": "point_mass", "draw": "usv",
+      "blurb": "A small surface vessel seen from above: no gravity in the plane, strong hydrodynamic drag (top speed = thrust ÷ drag).",
+      "methods": ["neural", "convex", "e_guidance"],
+      "params": {"mass": 20, "max_thrust": 40, "drag": 15, "gravity": 0, "horizon": 25, "workspace": 25, "start_speed": 1, "lambda_fuel": 0.1},
+      "locked": ["gravity"]
+    }
+  }
+}

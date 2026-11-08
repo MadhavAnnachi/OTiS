@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "otis",
+      "runtimeExecutable": "wsl",
+      "runtimeArgs": ["-d", "Ubuntu", "--", "bash", "-lc", "cd /mnt/c/Users/annac/Desktop/Building/OTiS/otis && ~/nh-venv/bin/python main.py --port 8765"],
+      "port": 8765
+    }
+  ]
+}

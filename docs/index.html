@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OTiS</title>
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#333333">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400..700&family=Source+Sans+3:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="navbar">
+    <div class="nav-inner">
+      <div class="brand">
+        <svg viewBox="0 0 24 24" class="brand-mark" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 15 Q12 4 19 9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="19" cy="9" r="2.2" fill="currentColor"/></svg>
+        <div class="brand-text"><span>OTiS</span><small>Optimized Trajectory Simulator</small></div>
+      </div>
+      <div class="segmented" id="tabs" role="tablist">
+        <button role="tab" data-tab="simulator" class="active">Simulator</button>
+        <button role="tab" data-tab="training">Training</button>
+        <button role="tab" data-tab="benchmark">Benchmark</button>
+        <span class="seg-thumb"></span>
+      </div>
+      <div class="status" id="status"><span class="dot"></span><span id="status-text">Connecting…</span></div>
+    </div>
+  </header>
+
+  <main>
+    <div class="nav-sub" id="nav-sub">
+      <div class="segmented" id="vehicle-tabs" role="tablist" aria-label="Vehicle">
+        <button data-vehicle="rocket" class="active">Rocket</button>
+        <button data-vehicle="uav">UAV</button>
+        <button data-vehicle="usv">USV</button>
+        <span class="seg-thumb"></span>
+      </div>
+    </div>
+    <!-- ======================= SIMULATOR ======================= -->
+    <section class="view active" id="view-simulator">
+      <div class="hero">
+        <p id="sim-hero">Enter your vehicle and mission, or drag the start, velocity and goal. Every planner solves the same problem in the plant your numbers define, and you can train the network on it.</p>
+      </div>
+      <div class="layout three">
+        <aside class="inspector params-panel" id="params-panel" aria-label="Parameters">
+          <div class="group">
+            <div class="group-title">Parameters
+              <span class="title-actions">
+                <button class="linkbtn" id="btn-reset" title="Restore this vehicle's preset">Reset</button>
+                <button class="linkbtn" id="btn-import" title="Load a mission file">Import</button>
+                <button class="linkbtn" id="btn-export" title="Save these parameters and the scenario as JSON">Export</button>
+                <input type="file" id="import-file" accept="application/json,.json" hidden>
+              </span>
+            </div>
+            <div id="param-groups"></div>
+          </div>
+          <div class="group">
+            <div class="group-title">Start and goal</div>
+            <div class="list">
+              <div class="field-pair"><span class="pair-lab">Start</span>
+                <label class="mini"><span>x</span><input class="num-in" data-sc="x0.0" type="text" inputmode="decimal"></label>
+                <label class="mini"><span>y</span><input class="num-in" data-sc="x0.1" type="text" inputmode="decimal"></label><span class="unit">m</span></div>
+              <div class="field-pair"><span class="pair-lab">Velocity</span>
+                <label class="mini"><span>vx</span><input class="num-in" data-sc="x0.2" type="text" inputmode="decimal"></label>
+                <label class="mini"><span>vy</span><input class="num-in" data-sc="x0.3" type="text" inputmode="decimal"></label><span class="unit">m/s</span></div>
+              <div class="field-pair"><span class="pair-lab">Goal</span>
+                <label class="mini"><span>x</span><input class="num-in" data-sc="goal.0" type="text" inputmode="decimal"></label>
+                <label class="mini"><span>y</span><input class="num-in" data-sc="goal.1" type="text" inputmode="decimal"></label><span class="unit">m</span></div>
+              <div class="row buttons"><button class="btn" id="btn-random">Random</button><button class="btn" id="btn-zero">Zero velocity</button></div>
+            </div>
+          </div>
+          <div class="group">
+            <div class="group-title">What these numbers mean</div>
+            <div class="list" id="derived"></div>
+          </div>
+        </aside>
+
+        <div class="stage card">
+          <canvas id="sim-canvas"></canvas>
+          <div class="legend glass" id="sim-legend"></div>
+          <div class="hint glass" id="sim-hint">Drag <b class="c-start">start</b>, <b class="c-vel">velocity</b> and <b class="c-goal">goal</b> · Double-click to set the goal · <kbd>R</kbd> random · <kbd>Space</kbd> play</div>
+          <div class="transport glass">
+            <button class="icon-btn" id="play-btn" aria-label="Play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
+            <input type="range" id="time-slider" min="0" max="50" value="50" step="0.01" aria-label="Time">
+            <span class="mono" id="time-label">t = 4.00 s</span>
+          </div>
+        </div>
+
+        <aside class="inspector">
+          <div class="group">
+            <div class="group-title">Network</div>
+            <div class="list" id="neural-card"></div>
+          </div>
+
+          <div class="group">
+            <div class="group-title">Plans</div>
+            <div class="list">
+              <div id="method-list"></div>
+              <label class="row"><span class="swatch thrust"></span><span class="grow">Control vectors</span><input type="checkbox" class="switch" id="show-thrust" checked></label>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group-title">Comparison <span class="muted" id="opt-note"></span></div>
+            <div class="list compare" id="compare"></div>
+          </div>
+
+          <div class="group">
+            <div class="group-title">Thrust profile</div>
+            <div class="list pad"><canvas id="thrust-canvas" height="120"></canvas></div>
+          </div>
+
+        </aside>
+      </div>
+    </section>
+
+    <!-- ======================= TRAINING ======================= -->
+    <section class="view" id="view-training">
+      <div class="hero">
+        <h1>Train a model for your vehicle.</h1>
+      </div>
+      <div class="layout">
+        <div class="stage card">
+          <canvas id="train-canvas"></canvas>
+          <div class="badge glass" id="train-badge">Step 0</div>
+          <div class="transport glass">
+            <button class="icon-btn" id="evo-play" aria-label="Replay evolution"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
+            <input type="range" id="evo-slider" min="0" max="0" value="0" step="1" aria-label="Training snapshot">
+            <span class="mono" id="evo-label">live</span>
+          </div>
+        </div>
+        <aside class="inspector">
+          <div class="group">
+            <div class="group-title">Plant <span class="muted">from the Simulator's parameters</span></div>
+            <div class="list" id="train-plant"></div>
+          </div>
+          <div class="group">
+            <div class="group-title">Model</div>
+            <div class="list">
+              <div class="row col">
+                <div class="segmented small" id="size-seg"></div>
+                <small class="muted" id="size-note"></small>
+              </div>
+              <div class="row"><span class="grow">Training steps</span><span class="mono" id="steps-val">6000</span></div>
+              <div class="row slider-row"><input type="range" id="steps" min="500" max="30000" step="500" value="6000"></div>
+              <div class="row buttons">
+                <button class="btn primary" id="btn-train">Train</button>
+                <button class="btn" id="btn-pause" disabled>Pause</button>
+                <button class="btn" id="btn-stop" disabled>Stop</button>
+              </div>
+            </div>
+          </div>
+          <div class="group">
+            <div class="group-title">Progress</div>
+            <div class="list">
+              <div class="row col">
+                <div class="progress"><div id="progress-bar"></div></div>
+              </div>
+              <div class="kpis">
+                <div class="kpi"><span class="kpi-val" id="k-loss">—</span><span class="kpi-lab">Validation loss</span></div>
+                <div class="kpi"><span class="kpi-val" id="k-dist">—</span><span class="kpi-lab">Mean miss</span></div>
+                <div class="kpi"><span class="kpi-val" id="k-rate">—</span><span class="kpi-lab">Steps / s</span></div>
+                <div class="kpi"><span class="kpi-val" id="k-params">—</span><span class="kpi-lab">Parameters</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="group">
+            <div class="group-title">Loss <span class="muted">log scale</span></div>
+            <div class="list pad"><canvas id="loss-canvas" height="180"></canvas>
+              <div class="mini-legend"><span><i class="ln neural"></i>Validation loss</span><span><i class="ln convex"></i>Squared miss</span></div>
+            </div>
+          </div>
+        </aside>
+      </div>
+      <div class="card table-card log-card">
+        <div class="log-head">
+          <h2>Training log <span class="muted" id="log-sub">updates live while training</span></h2>
+          <div class="log-tools">
+            <span class="muted small-lab">Every</span>
+            <div class="segmented" id="log-every">
+              <button data-every="100">100</button><button data-every="250" class="active">250</button><button data-every="500">500</button><button data-every="1000">1000</button>
+            </div>
+            <span class="muted small-lab">steps</span>
+            <button class="btn" id="log-csv">Export CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap log-wrap"><table id="log-table"></table></div>
+        <small class="muted log-foot">Validation metrics are measured on the same fixed set of unseen missions at every row. Δ val is the change from the row below. Time excludes compilation and pauses.</small>
+      </div>
+    </section>
+
+    <!-- ======================= BENCHMARK ======================= -->
+    <section class="view" id="view-benchmark">
+      <div class="hero">
+        <h1>Measured against the status quo.</h1>
+        <p>Thousands of unseen missions, scored by the same simulator. The convex solver is how flight systems solve this class of problem. The exact optimum is the referee.</p>
+      </div>
+      <div id="bench-empty" class="card empty">No benchmark yet. Run <code>python main.py --benchmark</code>, then reload.</div>
+      <div id="bench" hidden>
+        <div class="tiles" id="bench-tiles"></div>
+        <div class="card table-card">
+          <h2>Problem definition</h2>
+          <dl class="defs" id="problem-def"></dl>
+        </div>
+        <div class="card table-card">
+          <h2>Head-to-head</h2>
+          <div class="table-wrap"><table id="bench-table"></table></div>
+        </div>
+        <div class="card table-card">
+          <h2>Numerical deltas</h2>
+          <div class="table-wrap"><table id="delta-table"></table></div>
+          <div class="delta-legend"><span><i class="good-sw"></i>green = better for the first method</span><span><i class="bad-sw"></i>red = worse for the first method</span><span class="muted">ΔJ % is a ratio of means: (mean J<sub>a</sub> − mean J<sub>b</sub>) / mean J<sub>b</sub>. Lower is better in every column.</span></div>
+        </div>
+        <div class="two">
+          <div class="card table-card">
+            <h2>Cross-validation</h2>
+            <ul class="checks" id="cv-list"></ul>
+          </div>
+          <div class="card table-card">
+            <h2>Compute per plan</h2>
+            <div class="bars" id="time-bars"></div>
+          </div>
+        </div>
+        <p class="footnote" id="bench-foot"></p>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast glass" id="toast"></div>
+  <script src="plant.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

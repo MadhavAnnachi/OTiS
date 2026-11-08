@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+checkpoints/
+outputs/
+*.pkl
+.pytest_cache/
+.mypy_cache/
+
+# local server logs
+otis-server.out
+otis-server.err
+*.log
+
