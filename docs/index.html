@@ -24,7 +24,7 @@
         <button role="tab" data-tab="about">About</button>
         <span class="seg-thumb"></span>
       </div>
-      <div class="status" id="status"><span class="dot"></span><span id="status-text">Connecting…</span></div>
+      <div class="status" id="status"><span class="dot"></span><span id="status-text">ConnectingΓÇª</span></div>
     </div>
   </header>
 
@@ -79,7 +79,7 @@
         <div class="stage card">
           <canvas id="sim-canvas"></canvas>
           <div class="legend glass" id="sim-legend"></div>
-          <div class="hint glass" id="sim-hint">Drag <b class="c-start">start</b>, <b class="c-vel">velocity</b> and <b class="c-goal">goal</b> · Double-click to set the goal · <kbd>R</kbd> random · <kbd>Space</kbd> play</div>
+          <div class="hint glass" id="sim-hint">Drag <b class="c-start">start</b>, <b class="c-vel">velocity</b> and <b class="c-goal">goal</b> ┬╖ Double-click to set the goal ┬╖ <kbd>R</kbd> random ┬╖ <kbd>Space</kbd> play</div>
           <div class="transport glass">
             <button class="icon-btn" id="play-btn" aria-label="Play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
             <input type="range" id="time-slider" min="0" max="50" value="50" step="0.01" aria-label="Time">
@@ -158,10 +158,10 @@
                 <div class="progress"><div id="progress-bar"></div></div>
               </div>
               <div class="kpis">
-                <div class="kpi"><span class="kpi-val" id="k-loss">—</span><span class="kpi-lab">Validation loss</span></div>
-                <div class="kpi"><span class="kpi-val" id="k-dist">—</span><span class="kpi-lab">Mean miss</span></div>
-                <div class="kpi"><span class="kpi-val" id="k-rate">—</span><span class="kpi-lab">Steps / s</span></div>
-                <div class="kpi"><span class="kpi-val" id="k-params">—</span><span class="kpi-lab">Parameters</span></div>
+                <div class="kpi"><span class="kpi-val" id="k-loss">ΓÇö</span><span class="kpi-lab">Validation loss</span></div>
+                <div class="kpi"><span class="kpi-val" id="k-dist">ΓÇö</span><span class="kpi-lab">Mean miss</span></div>
+                <div class="kpi"><span class="kpi-val" id="k-rate">ΓÇö</span><span class="kpi-lab">Steps / s</span></div>
+                <div class="kpi"><span class="kpi-val" id="k-params">ΓÇö</span><span class="kpi-lab">Parameters</span></div>
               </div>
             </div>
           </div>
@@ -186,14 +186,14 @@
           </div>
         </div>
         <div class="table-wrap log-wrap"><table id="log-table"></table></div>
-        <small class="muted log-foot">Validation metrics are measured on the same fixed set of unseen missions at every row. Δ val is the change from the row below. Time excludes compilation and pauses.</small>
+        <small class="muted log-foot">Validation metrics are measured on the same fixed set of unseen missions at every row. ╬ö val is the change from the row below. Time excludes compilation and pauses.</small>
       </div>
     </section>
 
     <!-- ======================= ABOUT ======================= -->
     <section class="view" id="view-about" aria-labelledby="about-title">
       <div class="hero">
-        <h1 id="about-title">A thrust plan, from start to goal.</h1>
+        <h1 id="about-title">How it works</h1>
       </div>
       <div class="about">
         <div class="card about-lead">
