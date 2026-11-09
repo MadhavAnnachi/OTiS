@@ -171,3 +171,11 @@ These train and benchmark the Rocket preset from the command line. For other par
 --no-viz | --benchmark | --export-benchmark | --check | --write-benchmark | --legacy-window
 --port 8765  --host 127.0.0.1  --autotrain
 ```
+
+
+## Contributors
+
+- [@ahanJaiswal](https://github.com/ahanJaiswal) — originated the hackathon idea, led the mathematical and physical reasoning behind the simulator and neural network, and contributed substantially to UI design.
+- [@MadhavAnnachi](https://github.com/MadhavAnnachi) — carried out neural network training as part of the team’s division of work.
+
+Development included in-person collaboration on shared machines, so commit authorship does not fully reflect individual contributions. These descriptions highlight the division of work rather than exhaustively listing each person’s contributions.
